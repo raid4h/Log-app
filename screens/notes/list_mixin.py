@@ -130,7 +130,7 @@ class NotesListMixin:
             padding=(dp(12), dp(6)),
             radius=[16],
             elevation=3 if is_selected else 0,
-            ripple_behavior=True,
+            ripple_behavior=False,
             theme_bg_color="Custom",
             md_bg_color=color_rgba,
         )
