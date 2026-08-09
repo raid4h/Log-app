@@ -262,8 +262,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 self.ids.up_next_tile.stat_label = "hr" if hours_until == 1 else "hrs"
             else:
                 days_until = hours_until // 24
-            self.ids.up_next_tile.stat_number = str(days_until)
-            self.ids.up_next_tile.stat_label = "day" if days_until == 1 else "days"
+                self.ids.up_next_tile.stat_number = str(days_until)
+                self.ids.up_next_tile.stat_label = "day" if days_until == 1 else "days"
         
         else:
             self.ids.up_next_tile.label = "Nothing scheduled"
