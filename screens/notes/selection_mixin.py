@@ -10,6 +10,7 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.button import MDButton, MDButtonText
 
+from screens.safe_card import make_safe_card
 import trash_store
 from database.notes_queries import get_notes_by_id, delete_notes
 
@@ -43,7 +44,7 @@ class SelectionMixin:
 
     def _show_bulk_delete_confirmation(self):
         count = len(self.selected_note_ids)
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(16),
             radius=[16], size_hint=(None, None), size=(dp(300), dp(160)),
         )

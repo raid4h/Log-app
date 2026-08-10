@@ -15,6 +15,7 @@ from plyer import filechooser
 
 from screens.editor.paths import get_exports_dir
 from screens.editor.markup import strip_markers_for_export
+from screens.safe_card import make_safe_card
 
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
 
@@ -61,7 +62,7 @@ class ExportMixin:
         self._show_export_confirmation(export_path)
 
     def _show_export_confirmation(self, export_path):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(16),
             radius=[16], size_hint=(None, None), size=(dp(320), dp(170)),
         )

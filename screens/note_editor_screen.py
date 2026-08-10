@@ -21,6 +21,7 @@ from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 --
 
 from database.notes_queries import get_notes_by_id, create_notes, update_notes, duplicate_notes
 
+from screens.safe_card import make_safe_card
 from theme.theme_manager import theme_manager
 from theme.themed_screen import ThemedScreenMixin
 from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_SECONDARY, CARD_PRIMARY, ACCENT
@@ -369,7 +370,7 @@ class NoteEditorScreen(
             self.go_back()
 
     def _show_unsaved_changes_prompt(self):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(16),
             radius=[16], size_hint=(None, None), size=(dp(340), dp(180)),
             theme_bg_color="Custom", md_bg_color=(0.97, 0.95, 0.90, 1),

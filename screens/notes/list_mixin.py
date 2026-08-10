@@ -13,6 +13,7 @@ from database.notes_queries import get_all_notes, search_notes as db_search_note
 from screens.notes.helpers import format_last_edited, clean_preview_text
 from screens.category_helpers import list_categories, category_color_rgba, contrasting_text_color
 import user_prefs
+from screens.safe_card import make_safe_card
 
 DEFAULT_NOTEBOOK_ID = 1
 GRID_ROW_HEIGHT = dp(230)
@@ -123,7 +124,8 @@ class NotesListMixin:
             bold=is_selected,
         )
 
-        chip = _FilterChip(
+        chip = make_safe_card(
+            _FilterChip,
             orientation="horizontal",
             size_hint=(None, None),
             adaptive_size=True,

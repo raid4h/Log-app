@@ -19,6 +19,7 @@ from screens.category_helpers import (
     list_categories, get_category, make_category, assign_category,
     category_color_rgba, CATEGORY_COLOR_PRESETS, delete_category, rename_category,
 )
+from screens.safe_card import make_safe_card
 from database.notes_queries import create_notes
 
 
@@ -72,7 +73,8 @@ class CategoryMixin:
         menu_height = row_height * (len(entries) + 2) + dp(16)
         menu_width = dp(270)  # widened slightly to fit the new delete icon
 
-        card = MDCard(
+        card = make_safe_card(
+            MDCard,
             orientation="vertical", padding=(dp(4), dp(8)),
             size_hint=(None, None), size=(menu_width, menu_height),
             radius=[16], elevation=4, theme_bg_color="Custom",
@@ -88,7 +90,7 @@ class CategoryMixin:
                 orientation="horizontal", size_hint_y=None, height=row_height,
                 padding=(dp(12), 0), spacing=dp(10),
             )
-            dot = MDCard(
+            dot = make_safe_card(MDCard,
                 size_hint=(None, None), size=(dp(16), dp(16)),
                 radius=[8], theme_bg_color="Custom", md_bg_color=color_rgba, elevation=0,
                 # Fixed-size children in a BoxLayout sit flush at the
@@ -152,7 +154,7 @@ class CategoryMixin:
         modal.open()
 
     def _prompt_delete_category(self, category_id, category_name, parent_modal):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(16),
             radius=[16], size_hint=(None, None), size=(dp(300), dp(170)),
             theme_bg_color="Custom", md_bg_color=(0.97, 0.95, 0.90, 1),
@@ -206,7 +208,7 @@ class CategoryMixin:
         self._set_current_category(category_id)
 
     def _open_new_category_popup(self):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(14),
             radius=[16], size_hint=(None, None), size=(dp(300), dp(260)),
             ripple_behavior=True,
@@ -239,13 +241,13 @@ class CategoryMixin:
                 ring.md_bg_color = (0.29, 0.20, 0.15, 1) if i == index else (0, 0, 0, 0)
 
         for index, (_, color) in enumerate(CATEGORY_COLOR_PRESETS):
-            ring = MDCard(
+            ring = make_safe_card(MDCard,
                 size_hint=(None, None), size=(dp(38), dp(38)),
                 radius=[19], elevation=0, theme_bg_color="Custom",
                 md_bg_color=(0.29, 0.20, 0.15, 1) if index == 0 else (0, 0, 0, 0),
             )
             inner_wrap = AnchorLayout(anchor_x="center", anchor_y="center")
-            swatch = _ColorSwatch(
+            swatch = make_safe_card(_ColorSwatch,
                 size_hint=(None, None), size=(dp(28), dp(28)),
                 radius=[14], theme_bg_color="Custom", md_bg_color=color, elevation=0,
                 ripple_behavior=True,
@@ -285,7 +287,7 @@ class CategoryMixin:
     def _open_rename_category_popup(self, category_id, current_name, current_color, parent_modal):
         parent_modal.dismiss()
 
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(14),
             radius=[16], size_hint=(None, None), size=(dp(300), dp(260)),
             theme_bg_color="Custom", md_bg_color=(0.97, 0.95, 0.90, 1),
@@ -315,13 +317,13 @@ class CategoryMixin:
 
         for index, (_, color) in enumerate(CATEGORY_COLOR_PRESETS):
             is_current = tuple(color) == tuple(current_color)
-            ring = MDCard(
+            ring = make_safe_card(MDCard,
                 size_hint=(None, None), size=(dp(38), dp(38)),
                 radius=[19], elevation=0, theme_bg_color="Custom",
                 md_bg_color=(0.29, 0.20, 0.15, 1) if is_current else (0, 0, 0, 0),
             )
             inner_wrap = AnchorLayout(anchor_x="center", anchor_y="center")
-            swatch = _ColorSwatch(
+            swatch = make_safe_card(_ColorSwatch,
                 size_hint=(None, None), size=(dp(28), dp(28)),
                 radius=[14], theme_bg_color="Custom", md_bg_color=color, elevation=0,
                 ripple_behavior=True,
