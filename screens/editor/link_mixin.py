@@ -14,6 +14,7 @@ from kivymd.uix.textfield import MDTextField, MDTextFieldHintText
 import webbrowser
 
 from screens.editor.markup import LINK_TOKEN_PATTERN, escape_and_apply_format_markup
+from screens.safe_card import make_safe_card
 
 
 class HyperlinkMixin:
@@ -71,7 +72,7 @@ class HyperlinkMixin:
         self._show_link_url_popup()
 
     def _show_link_url_popup(self):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(14),
             radius=[16], size_hint=(None, None), size=(dp(320), dp(180)),
         )
