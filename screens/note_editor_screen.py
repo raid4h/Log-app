@@ -18,6 +18,7 @@ from kivy.properties import BooleanProperty
 from kivymd.uix.screen import MDScreen
 from kivy.core.window import Window
 from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 -- registers the widget class with KV before app.kv loads it, same fix as the earlier DashboardTile "Unknown class" issue
+from kivy.core.window import Window
 
 from database.notes_queries import get_notes_by_id, create_notes, update_notes, duplicate_notes
 
@@ -135,11 +136,14 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
-        # Watches for the window being resized (or, on a real device,
-        # rotated) -- moves the toolbar between docked/floating
-        # placement whenever that crosses the compact-width breakpoint.
         Window.bind(width=self._on_window_width_changed)
         self._apply_toolbar_placement()
+        # Pushes the floating toolbar up above the on-screen keyboard.
+        # Window.keyboard_height is reported directly by Android's own
+        # keyboard show/hide events -- this works regardless of
+        # whether Android natively resizes the window, so it doesn't
+        # depend on any manifest-level setting we couldn't verify.
+        Window.bind(keyboard_height=self._on_keyboard_height_changed)
 
     def _on_window_width_changed(self, instance, width):
         self._apply_toolbar_placement()
@@ -421,3 +425,13 @@ class NoteEditorScreen(
     def _refresh_preview_if_active(self):
         if self.is_preview:
             self.show_preview_mode()
+
+    def _on_keyboard_height_changed(self, window, keyboard_height):
+        # Adds the keyboard's current height as extra bottom margin on
+        # the toolbar's anchor slot, so it always sits just above the
+        # keyboard instead of being hidden underneath it. Harmless
+        # when the toolbar is docked at the top instead (tablet mode)
+        # -- that slot is zero-height and invisible either way.
+        slot = self.ids.get("toolbar_bottom_slot")
+        if slot is not None:
+            slot.padding = [dp(12), dp(12), dp(12), dp(12) + keyboard_height]
