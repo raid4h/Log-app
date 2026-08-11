@@ -81,8 +81,12 @@
             text_color: 0.54, 0.35, 0.17, 1
 
         Widget:
-            size_hint_y: 1 if root.grid_mode else None
-            height: 0
+            # Always absorbs leftover vertical space now, not just in
+            # grid mode -- a note with completely empty content (no
+            # preview text) previously left unclaimed space in list
+            # mode too, causing the title to visually sit outside the
+            # expected card bounds.
+            size_hint_y: 2
 
         MDLabel:
             text: root.last_edited
@@ -547,7 +551,7 @@
         MDBoxLayout:
             id: toolbar_top_slot
             size_hint_y: None
-            height: dp(48) if not root.is_compact else 0
+            height: dp(48)
             padding: "8dp", "4dp"
 
             FormattingToolbar:
@@ -567,7 +571,7 @@
                 # Leaves room at the bottom for the floating toolbar
                 # only when it's actually floating there -- otherwise
                 # fills the whole body like before.
-                height: self.parent.height - (dp(76) if root.is_compact else 0)
+                height: self.parent.height
                 pos_hint: {"x": 0, "top": 1}
                 padding: "20dp"
                 radius: [20, 20, 20, 20]
@@ -588,16 +592,6 @@
                         background_active: ""
                         padding: dp(8), dp(8), dp(8), dp(8)
 
-            # ── floating slot: only visible/reachable when compact --
-            #    anchors the toolbar near the bottom edge with a
-            #    comfortable margin on all sides for the "floating" look ──
-            AnchorLayout:
-                id: toolbar_bottom_slot
-                size_hint: 1, None
-                height: dp(76) if root.is_compact else 0
-                anchor_x: "center"
-                anchor_y: "bottom"
-                padding: dp(12)
 
 <FormattingToolbar>:
     orientation: "vertical"

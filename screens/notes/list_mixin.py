@@ -63,7 +63,11 @@ class NotesListMixin:
     def _build_note_card(self, note, category_lookup, grid_mode=False):
         return NoteCard(
             title=note[2],
-            preview=clean_preview_text(note[3]),
+            # A completely empty string can make an adaptive-height
+            # label fail to compute a real height and fall back to
+            # Kivy's oversized internal default -- forcing a single
+            # space instead avoids that edge case entirely.
+            preview=clean_preview_text(note[3]) or " ",
             note_id=note[0],
             is_pinned=bool(note[4]),
             last_edited=format_last_edited(note[7]),

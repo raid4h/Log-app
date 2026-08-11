@@ -18,7 +18,6 @@ from kivy.properties import BooleanProperty
 from kivymd.uix.screen import MDScreen
 from kivy.core.window import Window
 from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 -- registers the widget class with KV before app.kv loads it, same fix as the earlier DashboardTile "Unknown class" issue
-from kivy.core.window import Window
 
 from database.notes_queries import get_notes_by_id, create_notes, update_notes, duplicate_notes
 
@@ -43,9 +42,6 @@ from screens.editor.delete_mixin import DeleteConfirmationMixin
 from screens.editor.category_mixin import CategoryMixin, CategoryPillButton  # noqa: F401
 from screens.editor.delete_mixin import DeleteConfirmationMixin
 
-# Material Design's standard "compact vs medium" width breakpoint --
-# below this, treat the device as a phone; at or above, a tablet.
-COMPACT_WIDTH_BREAKPOINT = dp(600)
 
 
 class NoteEditorScreen(
@@ -136,33 +132,7 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
-        Window.bind(width=self._on_window_width_changed)
-        self._apply_toolbar_placement()
-        # Pushes the floating toolbar up above the on-screen keyboard.
-        # Window.keyboard_height is reported directly by Android's own
-        # keyboard show/hide events -- this works regardless of
-        # whether Android natively resizes the window, so it doesn't
-        # depend on any manifest-level setting we couldn't verify.
-        Window.bind(keyboard_height=self._on_keyboard_height_changed)
 
-    def _on_window_width_changed(self, instance, width):
-        self._apply_toolbar_placement()
-
-    def _apply_toolbar_placement(self):
-        compact = Window.width < COMPACT_WIDTH_BREAKPOINT
-        if compact == self.is_compact and self.ids.formatting_toolbar.parent is not None:
-            # No actual change -- avoid needless reparenting on every
-            # tiny resize event.
-            return
-        self.is_compact = compact
-
-        toolbar = self.ids.formatting_toolbar
-        target = self.ids.toolbar_bottom_slot if compact else self.ids.toolbar_top_slot
-
-        if toolbar.parent is not None:
-            toolbar.parent.remove_widget(toolbar)
-        target.add_widget(toolbar)
-        toolbar.is_compact = compact
 
     def _current_snapshot(self):
         field = self.ids.content_field
@@ -425,13 +395,3 @@ class NoteEditorScreen(
     def _refresh_preview_if_active(self):
         if self.is_preview:
             self.show_preview_mode()
-
-    def _on_keyboard_height_changed(self, window, keyboard_height):
-        # Adds the keyboard's current height as extra bottom margin on
-        # the toolbar's anchor slot, so it always sits just above the
-        # keyboard instead of being hidden underneath it. Harmless
-        # when the toolbar is docked at the top instead (tablet mode)
-        # -- that slot is zero-height and invisible either way.
-        slot = self.ids.get("toolbar_bottom_slot")
-        if slot is not None:
-            slot.padding = [dp(12), dp(12), dp(12), dp(12) + keyboard_height]
