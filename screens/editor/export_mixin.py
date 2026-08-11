@@ -12,6 +12,7 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.button import MDButton, MDButtonText
 from plyer import filechooser
+from kivy.utils import platform
 
 from screens.editor.paths import get_exports_dir
 from screens.editor.markup import strip_markers_for_export
@@ -36,12 +37,21 @@ class ExportMixin:
         exports_dir = get_exports_dir()
         os.makedirs(exports_dir, exist_ok=True)
 
-        self._cwd_before_export_picker = os.getcwd()
+        if platform == "android":
+            # plyer's save_file() picker has no working Android implementation --
+            # it silently does nothing instead of opening a dialog. So on Android
+            # we skip the picker entirely and just write directly into the app's
+            # own exports folder, then show the confirmation popup with the path.
+            export_path = os.path.join(exports_dir, f"{safe_title}.txt")
+            self._write_export_file([export_path])
+            return
 
+        # Desktop (Windows/Linux) still gets the real native "save as" dialog
+        self._cwd_before_export_picker = os.getcwd()
         filechooser.save_file(
             on_selection=self.on_export_location_selected,
             filters=[["Text files", "*.txt"]],
-            path = os.path.join(exports_dir, f"{safe_title}.txt"),
+            path=os.path.join(exports_dir, f"{safe_title}.txt"),
         )
 
     def on_export_location_selected(self, selection):

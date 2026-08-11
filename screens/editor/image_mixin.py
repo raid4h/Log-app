@@ -43,7 +43,7 @@ class ImageAttachmentMixin:
         Clock.schedule_once(lambda dt: self._insert_image_token(selection))
 
     def _insert_image_token(self, selection):
-        if not selection:
+        if not selection or selection[0] is None:
             return
         original_path = selection[0]
 
