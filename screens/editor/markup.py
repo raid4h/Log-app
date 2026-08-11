@@ -50,3 +50,41 @@ def strip_markers_for_export(raw_content):
     text = re.sub(r"==(.+?)==", r"\1", text, flags=re.DOTALL)
     text = re.sub(r"\*(.+?)\*", r"\1", text, flags=re.DOTALL)
     return text.strip()
+
+def convert_markers_to_html(raw_content, image_to_html):
+    """
+    Converts a note's raw stored text (with {{img:...}}, {{link:...}},
+    **bold**, __underline__, *italic*, ==highlight== markers) into an
+    HTML fragment, used by the "export as HTML" feature.
+
+    image_to_html: a function that takes the stored image path
+    captured from a {{img:...}} marker and returns the HTML to put in
+    its place (a real <img> tag). Passed in rather than handled here,
+    so this file can stay pure text transformation -- reading image
+    files off disk and encoding them is left to the caller.
+    """
+    # Escape HTML-sensitive characters FIRST, then inject real tags --
+    # same order as escape_and_apply_format_markup above, so escaping
+    # can't accidentally mangle a tag we just inserted.
+    text = (
+        raw_content.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+    text = IMAGE_TOKEN_PATTERN.sub(lambda m: image_to_html(m.group(1)), text)
+    text = LINK_TOKEN_PATTERN.sub(
+        lambda m: f'<a href="{m.group(1)}">{m.group(2)}</a>', text
+    )
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
+    text = re.sub(r"__(.+?)__", r"<u>\1</u>", text, flags=re.DOTALL)
+    text = re.sub(
+        r"==(.+?)==",
+        r'<span style="background-color:#FFF3B0">\1</span>',
+        text, flags=re.DOTALL,
+    )
+    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text, flags=re.DOTALL)
+    # Plain newlines don't create line breaks in HTML -- convert them
+    # to <br> explicitly so paragraph breaks in the note are kept.
+    text = text.replace("\n", "<br>\n")
+    return text

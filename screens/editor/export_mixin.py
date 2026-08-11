@@ -1,21 +1,23 @@
 # screens/editor/export_mixin.py
-# Exports the current note as a plain .txt file, letting the user pick
-# the save location via a native file dialog.
+# Exports the current note as a self-contained .html file (so inline
+# photos actually render when opened), using Android's native "Save
+# As" dialog on Android and plyer's dialog on desktop.
 
 import os
 import re
-from kivy.utils import platform
+import base64
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.modalview import ModalView
+from kivy.utils import platform
 from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.button import MDButton, MDButtonText
 from plyer import filechooser
 
 from screens.editor.paths import get_exports_dir
-from screens.editor.markup import strip_markers_for_export
+from screens.editor.markup import convert_markers_to_html
 from screens.safe_card import make_safe_card
 
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
@@ -32,9 +34,13 @@ class ExportMixin:
         return cleaned if cleaned else "Untitled"
 
     def export_note_as_txt(self):
+        # NOTE: kept this method's name unchanged (the export button
+        # in the .kv file is already bound to it) even though it now
+        # produces an .html file -- renaming would mean also hunting
+        # down and updating that button binding.
         title = self.ids.title_field.text.strip() or "Untitled"
         self._export_title = title
-        self._export_clean_content = strip_markers_for_export(self.ids.content_field.text)
+        self._export_raw_content = self.ids.content_field.text
 
         safe_title = self._sanitize_filename(title)
 
@@ -44,7 +50,7 @@ class ExportMixin:
             # ask Android's OWN native "Save As" dialog directly (the
             # same one Chrome/Gmail use, lets the user pick Downloads,
             # Drive, etc).
-            self._android_save_as(f"{safe_title}.txt")
+            self._android_save_as(f"{safe_title}.html")
             return
 
         # Desktop (Windows/Linux) keeps using plyer's dialog, which
@@ -54,8 +60,8 @@ class ExportMixin:
         self._cwd_before_export_picker = os.getcwd()
         filechooser.save_file(
             on_selection=self.on_export_location_selected,
-            filters=[["Text files", "*.txt"]],
-            path=os.path.join(exports_dir, f"{safe_title}.txt"),
+            filters=[["HTML files", "*.html"]],
+            path=os.path.join(exports_dir, f"{safe_title}.html"),
         )
 
     def on_export_location_selected(self, selection):
@@ -67,19 +73,61 @@ class ExportMixin:
             return
 
         export_path = selection[0]
-        if not export_path.lower().endswith(".txt"):
-            export_path += ".txt"
+        if not export_path.lower().endswith(".html"):
+            export_path += ".html"
 
         with open(export_path, "w", encoding="utf-8") as f:
-            f.write(f"{self._export_title}\n\n{self._export_clean_content}")
+            f.write(self._build_export_html())
 
         self._show_export_confirmation(export_path)
 
+    def _build_export_html(self):
+        # Turns the note's raw stored text (with {{img:...}} etc.
+        # markers) into a full, self-contained HTML document -- photos
+        # are embedded directly as base64 text inside the file itself,
+        # so it still shows the image even if shared/moved elsewhere
+        # later, with no separate image file needed alongside it.
+        body_html = convert_markers_to_html(
+            self._export_raw_content, self._image_token_to_html_img_tag
+        )
+        escaped_title = (
+            self._export_title.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        return (
+            "<!DOCTYPE html>\n"
+            "<html>\n<head>\n<meta charset=\"utf-8\">\n"
+            f"<title>{escaped_title}</title>\n</head>\n<body>\n"
+            f"<h1>{escaped_title}</h1>\n"
+            f"<div>{body_html}</div>\n"
+            "</body>\n</html>\n"
+        )
+
+    def _image_token_to_html_img_tag(self, stored_path):
+        # Reads the actual image file bytes and embeds them directly
+        # in the HTML as base64 text (a way of representing binary
+        # data as plain text), so the image travels inside the .html
+        # file itself instead of needing a separate attached file.
+        try:
+            with open(stored_path, "rb") as f:
+                image_bytes = f.read()
+        except OSError:
+            # Image file went missing from the attachments folder --
+            # fall back to a text note instead of crashing the export.
+            return "[Photo unavailable]"
+
+        extension = os.path.splitext(stored_path)[1].lstrip(".").lower()
+        mime_subtype = "jpeg" if extension in ("jpg", "jpeg") else (extension or "jpeg")
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return f'<img src="data:image/{mime_subtype};base64,{encoded}" style="max-width:100%;">'
+
     def _android_save_as(self, filename):
         # jnius is the bridge that lets Python call real Android/Java
-        # code. Imported HERE, not at the top of the file, so this file
-        # can still be opened/tested on Windows without crashing --
-        # these modules only exist inside an actual Android build.
+        # code. Imported HERE, not at the top of the file, so this
+        # file can still be opened/edited on Windows without
+        # complaint -- these modules only exist inside an actual
+        # Android build, at runtime, on the device.
         from android import activity
         from jnius import autoclass
 
@@ -89,7 +137,7 @@ class ExportMixin:
         # ACTION_CREATE_DOCUMENT is Android's built-in "Save As" dialog.
         intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.setType("text/plain")
+        intent.setType("text/html")
         intent.putExtra(Intent.EXTRA_TITLE, filename)
 
         # Listen for Android's answer once the user finishes the dialog.
@@ -117,8 +165,7 @@ class ExportMixin:
         resolver = PythonActivity.mActivity.getContentResolver()
         output_stream = resolver.openOutputStream(uri)
 
-        content_bytes = f"{self._export_title}\n\n{self._export_clean_content}".encode("utf-8")
-        output_stream.write(content_bytes)
+        output_stream.write(self._build_export_html().encode("utf-8"))
         output_stream.close()
 
         # Kivy widgets should be touched from Kivy's own thread, so we
