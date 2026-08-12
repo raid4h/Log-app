@@ -1,14 +1,21 @@
 from database.db import get_connection
 from datetime import datetime
 
-def create_notes(notebook_id, title, content, category_id=None, is_pinned=0, is_archived=0, task_id=None):
+def create_notes(notebook_id, title, content, category_id=None, is_pinned=0, is_archived=0, task_id=None, created_at=None, updated_at=None):
     conn = get_connection()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # created_at/updated_at default to None so every existing caller
+    # (editor screens, duplicate_notes, etc.) keeps stamping "now" for
+    # both exactly like before. Only restore_engine.py passes real
+    # values through, to preserve a note's original timestamps across
+    # a backup/restore cycle instead of resetting them to "now".
+    final_created_at = created_at if created_at is not None else now
+    final_updated_at = updated_at if updated_at is not None else now
     cursor.execute('''
     INSERT INTO notes (notebook_id, title, content, category_id, is_pinned, is_archived, created_at, updated_at, task_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (notebook_id, title, content, category_id, is_pinned, is_archived, now, now, task_id))
+    ''', (notebook_id, title, content, category_id, is_pinned, is_archived, final_created_at, final_updated_at, task_id))
     note_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -29,7 +36,7 @@ def get_notes_by_id(note_id):
     cursor=conn.cursor()
     cursor.execute('''
     SELECT * FROM notes
-    WHERE id=?               
+    WHERE id=?
     ''',(note_id,))
     note=cursor.fetchone()
     conn.close()
@@ -40,7 +47,7 @@ def update_notes(note_id, title, content):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute('''
         UPDATE notes SET title=?, content=?, updated_at=?
-        WHERE id=?               
+        WHERE id=?
     ''', (title, content, now, note_id))
     conn.commit()
     conn.close()
@@ -48,8 +55,8 @@ def delete_notes(note_id):
     conn=get_connection()
     cursor=conn.cursor()
     cursor.execute('''
-    DELETE FROM notes 
-    WHERE id=?               
+    DELETE FROM notes
+    WHERE id=?
     ''',(note_id,))
     conn.commit()
     conn.close()
@@ -58,7 +65,7 @@ def search_notes(keyword):
     cursor=conn.cursor()
     cursor.execute('''
     SELECT * FROM notes
-    WHERE title LIKE ? OR content LIKE ?              
+    WHERE title LIKE ? OR content LIKE ?
     ''',(f'%{keyword}%', f'%{keyword}%'))
     results=cursor.fetchall()
     conn.close()
@@ -96,14 +103,14 @@ def sort_notes(notebook_id,sort_by="date"):
     notes=cursor.fetchall()
     conn.close()
     return notes
-    
+
 def duplicate_notes(note_id):
     og_note=get_notes_by_id(note_id)
     notebook_id=og_note[1]
     title=og_note[2]
     content=og_note[3]
     category_id = og_note[8]
-    
+
     create_notes(notebook_id,title,content,category_id=category_id)
 def get_notes_by_task(task_id):
     conn=get_connection()
