@@ -7,16 +7,22 @@
 # database with it after every step has succeeded. If anything fails
 # partway through, the live database is left completely untouched.
 #
-# Notes, Tasks, Categories, Attachments, and Trash are still a full
-# REPLACE on import -- only what's in the backup file survives,
-# exactly as this has always worked.
+# Every table now MERGES on import instead of replacing: whatever
+# currently exists live is combined with the backup's data (with
+# basic duplicate detection per table -- see each _merge_* function
+# below), so importing a backup can never silently erase something
+# added after that backup was taken.
 #
-# Calendar events and Checklists are different: they MERGE instead.
-# Whatever currently exists live gets combined with the backup's data
-# (with basic duplicate detection -- see _merge_calendar_events and
-# _merge_checklists_and_items below), so importing a backup can never
-# silently erase a calendar event or checklist you added after that
-# backup was taken.
+# Cross-table references (a note's category_id/task_id, a task's
+# category_id, a reminder's task_id, an attachment's note_id, trash's
+# category_id) are remapped using a "_merge_key" carried on every
+# in-memory entry -- ("existing", <live id>) for something already in
+# the database, ("backup", <backup id>) for something new from the
+# backup file. This is needed because existing-live ids and backup
+# ids come from two unrelated id sequences and could otherwise
+# collide by coincidence. _merge_key is purely an in-memory identity
+# used by this file's own populate functions -- it is never written
+# to the database.
 
 import contextlib
 import json
@@ -25,12 +31,14 @@ import tempfile
 
 from database.calendar_queries import create_calendar_events_table, create_event, get_all_events
 import database.db as db
-from database.category_queries import create_category
-from database.notes_queries import create_notes
-from database.task_queries import create_tasks
-from database.reminder_queries import create_reminder
-from database.attachment_queries import create_attachment
+from database.category_queries import create_category, get_all_categories
+from database.notes_queries import create_notes, get_all_notes
+from database.task_queries import create_tasks, get_all_tasks
+from database.reminder_queries import create_reminder, get_reminders_by_task, deactivate_reminders
+from database.attachment_queries import create_attachment, get_all_attachments
 import trash_store
+
+from screens.editor.paths import DEFAULT_NOTEBOOK_ID
 
 from services.checklist_store import (
     ensure_checklist_tables,
@@ -40,7 +48,16 @@ from services.checklist_store import (
     get_all_items_flat,
 )
 
-from services.backup_builder import SCHEMA_VERSION, verify_manifest_checksum, DEFAULT_USER_ID
+from services.backup_builder import (
+    SCHEMA_VERSION,
+    verify_manifest_checksum,
+    DEFAULT_USER_ID,
+    _note_to_dict,
+    _category_to_dict,
+    _task_to_dict,
+    _reminder_to_dict,
+    _attachment_to_dict,
+)
 
 
 class RestoreError(Exception):
@@ -86,9 +103,7 @@ def _temporary_database(db_path):
     database.db.get_connection(), which calls database.db.get_db_path()
     (a plain module-level name lookup, resolved fresh every call) --
     so replacing THAT function for the duration of this block redirects
-    every one of them at once, the same way this used to work by
-    swapping a module-level DB_NAME constant, before db.py switched to
-    computing the path dynamically via App.user_data_dir.
+    every one of them at once.
 
     NOTE: this relies on NoteNest being single-threaded, which it is
     today (Kivy's event loop runs on one thread, and nothing here
@@ -104,21 +119,185 @@ def _temporary_database(db_path):
         db.get_db_path = original_get_db_path
 
 
+# ── gathering existing live data (called BEFORE the temp-db swap) ──
+
+def _collect_existing_reminders(existing_tasks):
+    reminders = []
+    for task in existing_tasks:
+        for row in get_reminders_by_task(task["id"]):
+            reminders.append(_reminder_to_dict(row))
+    return reminders
+
+
+def _collect_existing_attachments(existing_notes):
+    attachments = []
+    for note in existing_notes:
+        for row in get_all_attachments(note["id"]):
+            attachments.append(_attachment_to_dict(row))
+    return attachments
+
+
+# ── merge: categories ──
+
+def _merge_categories(existing_categories, backup_categories):
+    """
+    Dedup rule: same name (case-insensitive) = same category.
+    Returns (merged_list, backup_id_to_target) -- the second value
+    maps a BACKUP category's own id to whichever merge_key it should
+    be treated as going forward (its own new entry, or an existing
+    category it matched), so tasks/notes/trash below can remap their
+    category_id references correctly regardless of which side "won".
+    """
+    merged = []
+    backup_id_to_target = {}
+    dedup_index = {}
+
+    for c in existing_categories:
+        mk = ("existing", c["id"])
+        entry = dict(c)
+        entry["_merge_key"] = mk
+        merged.append(entry)
+        dedup_index[(c.get("name") or "").casefold()] = mk
+
+    for c in backup_categories:
+        key = (c.get("name") or "").casefold()
+        if key in dedup_index:
+            backup_id_to_target[c["id"]] = dedup_index[key]
+            continue
+        mk = ("backup", c["id"])
+        entry = dict(c)
+        entry["_merge_key"] = mk
+        merged.append(entry)
+        dedup_index[key] = mk
+        backup_id_to_target[c["id"]] = mk
+
+    return merged, backup_id_to_target
+
+
 def _populate_categories(categories):
     id_map = {}
     for category in categories:
         new_id = create_category(category["name"], category["color"], category["user_id"])
-        id_map[category["id"]] = new_id
+        id_map[category["_merge_key"]] = new_id
     return id_map
 
 
-def _populate_notes(notes, category_id_map):
+# ── merge: tasks ──
+
+def _merge_tasks(existing_tasks, backup_tasks, backup_category_target):
+    """Dedup rule: same title + due_date = same task."""
+    merged = []
+    backup_id_to_target = {}
+    dedup_index = {}
+
+    for t in existing_tasks:
+        mk = ("existing", t["id"])
+        entry = dict(t)
+        entry["_merge_key"] = mk
+        entry["_category_merge_key"] = (
+            ("existing", t["category_id"]) if t.get("category_id") is not None else None
+        )
+        merged.append(entry)
+        dedup_index[(t.get("title"), t.get("due_date"))] = mk
+
+    for t in backup_tasks:
+        key = (t.get("title"), t.get("due_date"))
+        if key in dedup_index:
+            backup_id_to_target[t["id"]] = dedup_index[key]
+            continue
+        mk = ("backup", t["id"])
+        old_category_id = t.get("category_id")
+        entry = dict(t)
+        entry["_merge_key"] = mk
+        entry["_category_merge_key"] = (
+            backup_category_target.get(old_category_id) if old_category_id is not None else None
+        )
+        merged.append(entry)
+        dedup_index[key] = mk
+        backup_id_to_target[t["id"]] = mk
+
+    return merged, backup_id_to_target
+
+
+def _populate_tasks(tasks, category_id_map):
+    id_map = {}
+    for task in tasks:
+        category_mk = task.get("_category_merge_key")
+        new_category_id = category_id_map.get(category_mk) if category_mk is not None else None
+        new_id = create_tasks(
+            task["title"],
+            task["user_id"],
+            priority=task.get("priority"),
+            due_date=task.get("due_date"),
+            due_time=task.get("due_time"),
+            category_id=new_category_id,
+            link=task.get("link", ""),
+            carry_forward=bool(task.get("carry_forward", 0)),
+            notify_enabled=bool(task.get("notify_enabled", 0)),
+            activity_type=task.get("activity_type", "task"),
+        )
+        id_map[task["_merge_key"]] = new_id
+    return id_map
+
+
+# ── merge: notes ──
+
+def _merge_notes(existing_notes, backup_notes, backup_category_target, backup_task_target):
+    """
+    Dedup rule: same title + content exactly = same note.
+    Known limitation: a note edited after the backup was taken won't
+    match (different content), so importing that backup adds it as a
+    second note rather than updating the first -- detecting "this is
+    an edited version of that" reliably needs more than exact-match
+    comparison, and isn't attempted here.
+    """
+    merged = []
+    backup_id_to_target = {}
+    dedup_index = {}
+
+    for n in existing_notes:
+        mk = ("existing", n["id"])
+        entry = dict(n)
+        entry["_merge_key"] = mk
+        entry["_category_merge_key"] = (
+            ("existing", n["category_id"]) if n.get("category_id") is not None else None
+        )
+        entry["_task_merge_key"] = (
+            ("existing", n["task_id"]) if n.get("task_id") is not None else None
+        )
+        merged.append(entry)
+        dedup_index[(n.get("title"), n.get("content"))] = mk
+
+    for n in backup_notes:
+        key = (n.get("title"), n.get("content"))
+        if key in dedup_index:
+            backup_id_to_target[n["id"]] = dedup_index[key]
+            continue
+        mk = ("backup", n["id"])
+        old_category_id = n.get("category_id")
+        old_task_id = n.get("task_id")
+        entry = dict(n)
+        entry["_merge_key"] = mk
+        entry["_category_merge_key"] = (
+            backup_category_target.get(old_category_id) if old_category_id is not None else None
+        )
+        entry["_task_merge_key"] = (
+            backup_task_target.get(old_task_id) if old_task_id is not None else None
+        )
+        merged.append(entry)
+        dedup_index[key] = mk
+        backup_id_to_target[n["id"]] = mk
+
+    return merged, backup_id_to_target
+
+
+def _populate_notes(notes, category_id_map, task_id_map):
     id_map = {}
     for note in notes:
-        old_category_id = note.get("category_id")
-        new_category_id = (
-            category_id_map.get(old_category_id) if old_category_id is not None else None
-        )
+        category_mk = note.get("_category_merge_key")
+        new_category_id = category_id_map.get(category_mk) if category_mk is not None else None
+        task_mk = note.get("_task_merge_key")
+        new_task_id = task_id_map.get(task_mk) if task_mk is not None else None
 
         new_id = create_notes(
             note["notebook_id"],
@@ -127,116 +306,133 @@ def _populate_notes(notes, category_id_map):
             category_id=new_category_id,
             is_pinned=note.get("is_pinned", 0),
             is_archived=note.get("is_archived", 0),
-            # task_id was previously dropped on restore -- any note
-            # created from a task (see get_notes_by_task) would come
-            # back unlinked. Passed through now so that link survives
-            # a backup/restore cycle.
-            task_id=note.get("task_id"),
-            # created_at/updated_at were previously left out, so
-            # create_notes() silently stamped every restored note with
-            # "now" for both. Since get_all_notes() sorts by
-            # is_pinned DESC, updated_at DESC, that was quietly
-            # reordering the whole notes list on every restore.
-            # Passing the originals through preserves both real
-            # history and note order.
+            task_id=new_task_id,
             created_at=note.get("created_at"),
             updated_at=note.get("updated_at"),
         )
-        id_map[note["id"]] = new_id
+        id_map[note["_merge_key"]] = new_id
     return id_map
 
 
-def _populate_tasks(tasks):
-    id_map = {}
-    for task in tasks:
-        # Previously only title and user_id were passed through, so
-        # every other field (priority, due_date, due_time,
-        # category_id, activity_type, link, carry_forward,
-        # notify_enabled, original_due_date) was silently dropped on
-        # restore -- a task came back as a bare title with nothing
-        # else. create_tasks() already accepts all of these as
-        # kwargs, so they're passed through now. category_id is
-        # remapped through category_id_map like notes' category_id
-        # is, rather than passed as the raw old id, since categories
-        # get new ids on restore too.
-        new_id = create_tasks(
-            task["title"],
-            task["user_id"],
-            priority=task.get("priority"),
-            due_date=task.get("due_date"),
-            due_time=task.get("due_time"),
-            category_id=task.get("category_id"),
-            link=task.get("link", ""),
-            carry_forward=bool(task.get("carry_forward", 0)),
-            notify_enabled=bool(task.get("notify_enabled", 0)),
-            activity_type=task.get("activity_type", "task"),
-        )
-        id_map[task["id"]] = new_id
-    return id_map
+# ── merge: reminders ──
+
+def _merge_reminders(existing_reminders, backup_reminders, backup_task_target):
+    """Dedup rule: same task + same remind_at = same reminder."""
+    merged = []
+    dedup_index = set()
+
+    for r in existing_reminders:
+        task_mk = ("existing", r["task_id"])
+        entry = dict(r)
+        entry["_task_merge_key"] = task_mk
+        merged.append(entry)
+        dedup_index.add((task_mk, r["remind_at"]))
+
+    for r in backup_reminders:
+        task_mk = backup_task_target.get(r["task_id"])
+        if task_mk is None:
+            # The task this reminder belonged to wasn't restored --
+            # shouldn't normally happen, skip rather than create a
+            # reminder pointing at a task that doesn't exist.
+            continue
+        key = (task_mk, r["remind_at"])
+        if key in dedup_index:
+            continue
+        entry = dict(r)
+        entry["_task_merge_key"] = task_mk
+        merged.append(entry)
+        dedup_index.add(key)
+
+    return merged
 
 
 def _populate_reminders(reminders, task_id_map):
     for reminder in reminders:
-        new_task_id = task_id_map.get(reminder["task_id"])
+        new_task_id = task_id_map.get(reminder.get("_task_merge_key"))
         if new_task_id is None:
-            # The task this reminder belonged to wasn't restored --
-            # shouldn't normally happen, but skip rather than create a
-            # reminder pointing at a task that doesn't exist.
             continue
         new_reminder_id = create_reminder(new_task_id, reminder["remind_at"])
-        # create_reminder() always inserts with is_active defaulting
-        # to 1 (see the reminders table's own DEFAULT 1 in db.py) --
-        # an inactive/already-dismissed reminder was previously coming
-        # back active after restore. deactivate_reminders() is the
-        # only existing way to flip that flag, so it's called here
-        # when the backup says the reminder was inactive.
         if not reminder.get("is_active", 1):
-            from database.reminder_queries import deactivate_reminders
             deactivate_reminders(new_reminder_id)
 
-def _populate_calendar_events(events):
-    for event in events:
-        create_event(
-            user_id=event.get("user_id", 1),
-            title=event["title"],
-            event_date=event["event_date"],
-            event_time=event.get("event_time"),
-            event_link=event.get("event_link"),
-            is_recurring=bool(event.get("is_recurring")),
-        )
-        # create_event() always starts a fresh row with completed=0,
-        # original_date=event_date, missed_days=0 (see its own
-        # docstring) -- this was already true for every restore, even
-        # before events merged, since EVERY event (backup or, now,
-        # existing-live) is recreated via create_event() here. The
-        # very next roll_forward_recurring_events() call (which runs
-        # every time the Calendar screen opens) will recompute
-        # missed_days correctly from today's date anyway, so this
-        # isn't a new regression from merging -- just an existing,
-        # already-accepted limitation that now also applies to
-        # previously-live events instead of only backup ones.
+
+# ── merge: attachments ──
+
+def _merge_attachments(existing_attachments, backup_attachments, backup_note_target):
+    """Dedup rule: same note + same file_path = same attachment."""
+    merged = []
+    dedup_index = set()
+
+    for a in existing_attachments:
+        note_mk = ("existing", a["note_id"])
+        entry = dict(a)
+        entry["_note_merge_key"] = note_mk
+        merged.append(entry)
+        dedup_index.add((note_mk, a["file_path"]))
+
+    for a in backup_attachments:
+        note_mk = backup_note_target.get(a["note_id"])
+        if note_mk is None:
+            continue
+        key = (note_mk, a["file_path"])
+        if key in dedup_index:
+            continue
+        entry = dict(a)
+        entry["_note_merge_key"] = note_mk
+        merged.append(entry)
+        dedup_index.add(key)
+
+    return merged
+
 
 def _populate_attachments(attachments, note_id_map):
     for attachment in attachments:
-        new_note_id = note_id_map.get(attachment["note_id"])
+        new_note_id = note_id_map.get(attachment["_note_merge_key"])
         if new_note_id is None:
             continue
         create_attachment(new_note_id, attachment["file_path"])
         # NOTE: this restores the ATTACHMENT RECORD (a row pointing at
         # a file path) -- it does not move or verify the actual image
         # file on disk. That file_path only resolves correctly when
-        # restoring on the same device the backup was made on. Moving
-        # the real attachment files between devices is a Phase 5
-        # concern (Drive Client), once attachments are actually
-        # uploaded/downloaded alongside the manifest.
+        # restoring on the same device the backup was made on.
+
+
+# ── merge: trash ──
+
+def _merge_trash(existing_trash, backup_trash, backup_category_target):
+    """Dedup rule: same title + content = same trash entry."""
+    merged = []
+    dedup_index = set()
+
+    for e in existing_trash:
+        category_mk = (
+            ("existing", e["category_id"]) if e.get("category_id") is not None else None
+        )
+        entry = dict(e)
+        entry["_category_merge_key"] = category_mk
+        merged.append(entry)
+        dedup_index.add((e.get("title"), e.get("content")))
+
+    for e in backup_trash:
+        key = (e.get("title"), e.get("content"))
+        if key in dedup_index:
+            continue
+        old_category_id = e.get("category_id")
+        category_mk = (
+            backup_category_target.get(old_category_id) if old_category_id is not None else None
+        )
+        entry = dict(e)
+        entry["_category_merge_key"] = category_mk
+        merged.append(entry)
+        dedup_index.add(key)
+
+    return merged
 
 
 def _populate_trash(trash_entries, category_id_map):
     for entry in trash_entries:
-        old_category_id = entry.get("category_id")
-        new_category_id = (
-            category_id_map.get(old_category_id) if old_category_id is not None else None
-        )
+        category_mk = entry.get("_category_merge_key")
+        new_category_id = category_id_map.get(category_mk) if category_mk is not None else None
         # trash_store.add_to_trash always stamps the CURRENT time as
         # deleted_at -- the original deletion timestamp from the
         # backup isn't preserved. Minor, cosmetic-only limitation.
@@ -245,15 +441,10 @@ def _populate_trash(trash_entries, category_id_map):
         )
 
 
+# ── merge: calendar events ──
+
 def _merge_calendar_events(existing_events, backup_events):
-    """
-    Combines the CURRENT live calendar events with the backup's
-    events, so import ADDS to the calendar instead of replacing it.
-    A backup event is treated as "the same" as an existing one when
-    its title, event_date, and event_time all match exactly -- in
-    that case the backup's copy is skipped (the existing one is kept
-    as-is); otherwise it's added.
-    """
+    """Dedup rule: same title + event_date + event_time = same event."""
     merged = list(existing_events)
     seen_keys = {
         (e.get("title"), e.get("event_date"), e.get("event_time"))
@@ -268,43 +459,41 @@ def _merge_calendar_events(existing_events, backup_events):
     return merged
 
 
+def _populate_calendar_events(events):
+    for event in events:
+        create_event(
+            user_id=event.get("user_id", 1),
+            title=event["title"],
+            event_date=event["event_date"],
+            event_time=event.get("event_time"),
+            event_link=event.get("event_link"),
+            is_recurring=bool(event.get("is_recurring")),
+        )
+        # create_event() always starts a fresh row with completed=0,
+        # original_date=event_date, missed_days=0 -- the very next
+        # roll_forward_recurring_events() call (which runs every time
+        # the Calendar screen opens) recomputes missed_days correctly
+        # from today's date anyway.
+
+
+# ── merge: checklists & items ──
+
 def _merge_checklists_and_items(existing_checklists, existing_items, backup_checklists, backup_items):
     """
-    Combines the CURRENT live checklists/items with the backup's, so
-    import ADDS content instead of replacing it.
-
-    A backup checklist is treated as "the same" as an existing one
-    when title+priority match -- in that case the backup's ITEMS are
-    merged into the EXISTING checklist rather than creating a
-    duplicate checklist row. Otherwise the backup checklist (and its
-    full item tree) is added as new.
-
-    Item-level dedup only applies to TOP-LEVEL items within a matched
-    checklist, matched by exact text -- if a backup top-level item's
-    text already exists there, that item AND its whole sub-item tree
-    is skipped (assumed to be the same item already present).
-    Sub-items are not independently deduped beyond that -- a
-    deliberate simplification, not an oversight, since fully general
-    nested-item matching adds a lot of complexity for little real
-    benefit here.
-
-    Every entry returned (checklists and items alike) carries a
-    "_merge_key" -- a synthetic, merge-internal identity used ONLY by
-    _populate_checklists/_populate_checklist_items below, since
-    existing-live ids and backup ids come from two completely
-    different, unrelated databases and could otherwise collide by
-    coincidence (e.g. existing checklist #5 and an unrelated backup
-    checklist #5). Never written to the database itself.
+    Dedup rule: checklists match on title+priority (items get merged
+    into the matched EXISTING checklist rather than duplicating it);
+    within a checklist, TOP-LEVEL items match on exact text (a
+    matching item and its whole sub-item tree is skipped). Sub-items
+    are not independently deduped beyond that.
     """
     merged_checklists = []
     checklist_merge_key_by_existing_id = {}
 
-    # Every existing checklist is always kept.
     for checklist in existing_checklists:
-        merge_key = ("existing", checklist["id"])
-        checklist_merge_key_by_existing_id[checklist["id"]] = merge_key
+        mk = ("existing", checklist["id"])
+        checklist_merge_key_by_existing_id[checklist["id"]] = mk
         entry = dict(checklist)
-        entry["_merge_key"] = merge_key
+        entry["_merge_key"] = mk
         merged_checklists.append(entry)
 
     existing_checklist_index = {
@@ -312,51 +501,39 @@ def _merge_checklists_and_items(existing_checklists, existing_items, backup_chec
         for c in existing_checklists
     }
 
-    # backup checklist's own (backup-file) id -> the merge_key its
-    # items should attach to, whether that's a matched EXISTING
-    # checklist or a newly-added backup one.
     backup_checklist_target = {}
     for checklist in backup_checklists:
         dedup_key = (checklist.get("title"), checklist.get("priority", ""))
         if dedup_key in existing_checklist_index:
             backup_checklist_target[checklist["id"]] = existing_checklist_index[dedup_key]
             continue
-        merge_key = ("backup", checklist["id"])
-        backup_checklist_target[checklist["id"]] = merge_key
+        mk = ("backup", checklist["id"])
+        backup_checklist_target[checklist["id"]] = mk
         entry = dict(checklist)
-        entry["_merge_key"] = merge_key
+        entry["_merge_key"] = mk
         merged_checklists.append(entry)
 
-    # -- items --
     merged_items = []
 
     existing_item_merge_key_by_id = {}
-    existing_top_level_index = {}  # (checklist_merge_key, text) -> True
+    existing_top_level_index = {}
     for item in existing_items:
-        checklist_merge_key = checklist_merge_key_by_existing_id.get(item["checklist_id"])
-        if checklist_merge_key is None:
+        checklist_mk = checklist_merge_key_by_existing_id.get(item["checklist_id"])
+        if checklist_mk is None:
             continue
-        merge_key = ("existing", item["id"])
-        existing_item_merge_key_by_id[item["id"]] = merge_key
+        mk = ("existing", item["id"])
+        existing_item_merge_key_by_id[item["id"]] = mk
         entry = dict(item)
-        entry["_merge_key"] = merge_key
-        entry["_checklist_merge_key"] = checklist_merge_key
+        entry["_merge_key"] = mk
+        entry["_checklist_merge_key"] = checklist_mk
         entry["_parent_merge_key"] = (
             existing_item_merge_key_by_id.get(item["parent_id"])
             if item.get("parent_id") is not None else None
         )
         merged_items.append(entry)
         if item.get("parent_id") is None:
-            existing_top_level_index[(checklist_merge_key, item["text"])] = True
+            existing_top_level_index[(checklist_mk, item["text"])] = True
 
-    # backup items -- relies on backup_items being ordered so a
-    # parent always appears before its own sub-items (already
-    # guaranteed by get_all_items_flat's "ORDER BY id ASC" plus a
-    # sub-item's id always being created after its parent's -- see
-    # backup_builder.py's _collect_checklist_items). skipped_ids
-    # tracks any backup item (duplicate OR orphaned) so its own
-    # sub-items get skipped too, instead of incorrectly reattaching as
-    # new top-level items.
     backup_item_merge_key_by_id = {}
     skipped_ids = set()
     for item in backup_items:
@@ -367,21 +544,21 @@ def _merge_checklists_and_items(existing_checklists, existing_items, backup_chec
             skipped_ids.add(old_id)
             continue
 
-        checklist_merge_key = backup_checklist_target.get(item["checklist_id"])
-        if checklist_merge_key is None:
+        checklist_mk = backup_checklist_target.get(item["checklist_id"])
+        if checklist_mk is None:
             skipped_ids.add(old_id)
             continue
 
         is_top_level = parent_old_id is None
-        if is_top_level and (checklist_merge_key, item["text"]) in existing_top_level_index:
+        if is_top_level and (checklist_mk, item["text"]) in existing_top_level_index:
             skipped_ids.add(old_id)
             continue
 
-        merge_key = ("backup", old_id)
-        backup_item_merge_key_by_id[old_id] = merge_key
+        mk = ("backup", old_id)
+        backup_item_merge_key_by_id[old_id] = mk
         entry = dict(item)
-        entry["_merge_key"] = merge_key
-        entry["_checklist_merge_key"] = checklist_merge_key
+        entry["_merge_key"] = mk
+        entry["_checklist_merge_key"] = checklist_mk
         entry["_parent_merge_key"] = (
             backup_item_merge_key_by_id.get(parent_old_id) if parent_old_id is not None else None
         )
@@ -410,10 +587,8 @@ def _populate_checklist_items(items, checklist_id_map):
         if new_checklist_id is None:
             continue
 
-        parent_merge_key = item.get("_parent_merge_key")
-        new_parent_id = (
-            item_id_map.get(parent_merge_key) if parent_merge_key is not None else None
-        )
+        parent_mk = item.get("_parent_merge_key")
+        new_parent_id = item_id_map.get(parent_mk) if parent_mk is not None else None
 
         new_id = create_checklist_item(
             new_checklist_id,
@@ -428,25 +603,50 @@ def _populate_checklist_items(items, checklist_id_map):
 
 def restore_from_manifest(manifest):
     """
-    Safely restores the app's data from a manifest dictionary. Builds
-    a brand-new database in a temporary file, populates it completely,
-    and only replaces the live database with it after every step
-    succeeds. Raises RestoreError (validation failed, nothing was
-    touched) or lets the original exception propagate (something
-    failed mid-build, temp file cleaned up, live database untouched).
+    Safely restores the app's data from a manifest dictionary, MERGING
+    it with whatever is currently live (see each _merge_* function
+    above for per-table dedup rules) rather than replacing it. Builds
+    a brand-new database in a temporary file, populates it completely
+    with the merged data, and only replaces the live database with it
+    after every step succeeds. Raises RestoreError (validation failed,
+    nothing was touched) or lets the original exception propagate
+    (something failed mid-build, temp file cleaned up, live database
+    untouched).
     """
     _validate_manifest(manifest)
     data = manifest["data"]
 
-    # Read from the LIVE database, BEFORE _temporary_database ever
+    # Read from the LIVE database BEFORE _temporary_database ever
     # repoints db.get_db_path() at the new temp file -- this is what
-    # actually gets MERGED with the backup below (see
-    # _merge_calendar_events / _merge_checklists_and_items), instead
-    # of the full-replace semantics every other table here still uses.
+    # gets merged with the backup below.
+    existing_categories = [_category_to_dict(row) for row in get_all_categories(DEFAULT_USER_ID)]
+    existing_notes = [_note_to_dict(row) for row in get_all_notes(DEFAULT_NOTEBOOK_ID)]
+    existing_tasks = [_task_to_dict(row) for row in get_all_tasks(DEFAULT_USER_ID)]
+    existing_reminders = _collect_existing_reminders(existing_tasks)
+    existing_attachments = _collect_existing_attachments(existing_notes)
+    existing_trash = trash_store.get_trash_entries()
     existing_calendar_events = get_all_events(DEFAULT_USER_ID)
     existing_checklists = get_all_checklists(DEFAULT_USER_ID)
     existing_checklist_items = get_all_items_flat()
 
+    merged_categories, backup_category_target = _merge_categories(
+        existing_categories, data.get("categories", [])
+    )
+    merged_tasks, backup_task_target = _merge_tasks(
+        existing_tasks, data.get("tasks", []), backup_category_target
+    )
+    merged_notes, backup_note_target = _merge_notes(
+        existing_notes, data.get("notes", []), backup_category_target, backup_task_target
+    )
+    merged_reminders = _merge_reminders(
+        existing_reminders, data.get("reminders", []), backup_task_target
+    )
+    merged_attachments = _merge_attachments(
+        existing_attachments, data.get("attachments", []), backup_note_target
+    )
+    merged_trash = _merge_trash(
+        existing_trash, data.get("trash", []), backup_category_target
+    )
     merged_calendar_events = _merge_calendar_events(
         existing_calendar_events, data.get("calendar_events", [])
     )
@@ -474,24 +674,19 @@ def restore_from_manifest(manifest):
         with _temporary_database(temp_path):
             db.create_tables()
             create_calendar_events_table()
-            # checklists/checklist_items live outside db.py's
-            # create_tables() (see checklist_store.py's own
-            # docstring) -- ensure_checklist_tables() is the
-            # temp-database-aware way to guarantee they exist here
-            # too, since the module's usual _ensure_tables() guard
-            # would otherwise think it already did this against the
-            # REAL database and skip it for this temp one.
             ensure_checklist_tables()
 
-            category_id_map = _populate_categories(data.get("categories", []))
-            note_id_map = _populate_notes(data.get("notes", []), category_id_map)
-            task_id_map = _populate_tasks(data.get("tasks", []))
-            _populate_reminders(data.get("reminders", []), task_id_map)
-            # merged, not data.get("calendar_events", []) -- see above
+            # Order matters: categories before tasks (tasks reference
+            # category_id), tasks before notes (notes reference both
+            # category_id and task_id), notes before attachments
+            # (attachments reference note_id).
+            category_id_map = _populate_categories(merged_categories)
+            task_id_map = _populate_tasks(merged_tasks, category_id_map)
+            note_id_map = _populate_notes(merged_notes, category_id_map, task_id_map)
+            _populate_reminders(merged_reminders, task_id_map)
             _populate_calendar_events(merged_calendar_events)
-            _populate_attachments(data.get("attachments", []), note_id_map)
-            _populate_trash(data.get("trash", []), category_id_map)
-            # merged, not data.get("checklists"/"checklist_items", [])
+            _populate_attachments(merged_attachments, note_id_map)
+            _populate_trash(merged_trash, category_id_map)
             checklist_id_map = _populate_checklists(merged_checklists)
             _populate_checklist_items(merged_checklist_items, checklist_id_map)
 
