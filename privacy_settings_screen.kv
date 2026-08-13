@@ -1,0 +1,69 @@
+# privacy_settings_screen.kv
+# Settings > Privacy. Same header shape as settings_screen.kv, with a
+# scrollable list of permission cards built in Python (permission_list)
+# since the set of permissions and their status is dynamic, plus an
+# "Open App Settings" fallback button pinned at the bottom.
+
+<PrivacySettingsScreen>:
+
+    MDBoxLayout:
+        orientation: "vertical"
+        padding: dp(16)
+        spacing: dp(16)
+
+        # top row: back arrow + title/subtitle
+        MDBoxLayout:
+            size_hint_y: None
+            height: dp(56)
+            spacing: dp(8)
+
+            MDIconButton:
+                id: back_button
+                icon: "arrow-left"
+                theme_icon_color: "Custom"
+                on_release: root.go_back()
+
+            MDBoxLayout:
+                orientation: "vertical"
+
+                MDLabel:
+                    id: header_label
+                    text: "Privacy & Permissions"
+                    theme_text_color: "Custom"
+                    font_style: "Title"
+                    role: "medium"
+
+                MDLabel:
+                    id: subtitle_label
+                    text: "What NoteNest can access on this device"
+                    theme_text_color: "Custom"
+                    font_style: "Body"
+                    role: "small"
+
+        MDLabel:
+            id: desktop_note_label
+            text: ""
+            theme_text_color: "Custom"
+            font_style: "Body"
+            role: "small"
+            size_hint_y: None
+            height: 0
+            text_size: self.width, None
+
+        ScrollView:
+            MDBoxLayout:
+                id: permission_list
+                orientation: "vertical"
+                spacing: dp(12)
+                adaptive_height: True
+
+        MDButton:
+            id: open_settings_button
+            style: "tonal"
+            size_hint_y: None
+            height: dp(46)
+            pos_hint: {"center_x": 0.5}
+            on_release: root.open_app_settings_page()
+
+            MDButtonText:
+                text: "Open App Settings"

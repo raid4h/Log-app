@@ -6,12 +6,22 @@
 # Tables are created here, on first use, via CREATE TABLE IF NOT EXISTS.
 #
 # Structure: a "checklist" is a named container (e.g. "Shopping List")
-# that carries an optional category and priority. Each checklist has
-# its own items, and each item can have sub-items -- items and
-# sub-items live in the SAME table (checklist_items), linked via
-# parent_id (NULL for a top-level item, the parent item's id for a
-# sub-item), same self-referencing design as before, now additionally
-# scoped to a checklist via checklist_id.
+# that carries an optional priority. Each checklist has its own items,
+# and each item can have sub-items -- items and sub-items live in the
+# SAME table (checklist_items), linked via parent_id (NULL for a
+# top-level item, the parent item's id for a sub-item), same
+# self-referencing design as before, scoped to a checklist via
+# checklist_id.
+#
+# category (on checklists) and category/priority/due_date (on
+# checklist_items) were removed -- confirmed dead: nothing in this
+# file or screens/checklist_screen.py / screens/checklist_detail_screen.py
+# ever wrote or read them. The checklist's own title is the only
+# categorization this feature uses (see checklist_detail_screen.py's
+# own docstring). CREATE TABLE IF NOT EXISTS means any device that
+# already ran the app with the old schema keeps those columns sitting
+# around unused -- harmless, just dead weight on existing installs;
+# every fresh install/database going forward won't have them at all.
 
 from database.db import get_connection
 
@@ -31,7 +41,6 @@ def _ensure_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             title TEXT NOT NULL,
-            category TEXT DEFAULT '',
             priority TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -44,9 +53,6 @@ def _ensure_tables():
             parent_id INTEGER REFERENCES checklist_items(id),
             text TEXT NOT NULL,
             checked INTEGER DEFAULT 0,
-            category TEXT DEFAULT '',
-            priority TEXT DEFAULT '',
-            due_date TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -54,10 +60,7 @@ def _ensure_tables():
 
     # Migrates checklist_id into an existing checklist_items table
     # from before this rework -- CREATE TABLE IF NOT EXISTS alone
-    # won't add a column to a table that's already there. category/
-    # priority/due_date columns are left in place but unused going
-    # forward (cheaper than an SQLite column-drop, same approach the
-    # calendar feature uses for its own migrations).
+    # won't add a column to a table that's already there.
     cursor.execute("PRAGMA table_info(checklist_items)")
     existing_columns = {row[1] for row in cursor.fetchall()}
     if "checklist_id" not in existing_columns:
@@ -70,19 +73,52 @@ def _ensure_tables():
     _TABLES_CREATED = True
 
 
+def ensure_checklist_tables():
+    """
+    Public wrapper around _ensure_tables(), for callers outside this
+    module that need to guarantee the checklist tables exist in
+    whatever database database/db.py's get_connection() currently
+    points at -- specifically services/restore_engine.py, which
+    temporarily repoints get_connection() at a brand-new, empty
+    temporary database file while rebuilding one from a backup.
+    _TABLES_CREATED only remembers "have I ever done this", not
+    "does THIS database have the tables" -- it has no way of knowing
+    the database underneath it just changed, so calling any other
+    store function during a restore would silently skip table
+    creation and the very first insert would fail. Resetting the flag
+    here forces _ensure_tables() to actually check/create the tables
+    in whatever database is live right now.
+    """
+    global _TABLES_CREATED
+    _TABLES_CREATED = False
+    _ensure_tables()
+
+
 # ── checklists (the named containers) ──
 
 _PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2, "": 3}
 
 
-def create_checklist(title, priority="", user_id=1):
+def create_checklist(title, priority="", user_id=1, created_at=None):
     _ensure_tables()
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO checklists (user_id, title, priority)
-        VALUES (?, ?, ?)
-    ''', (user_id, title, priority))
+    if created_at is not None:
+        # Only passed by restore_engine.py -- preserves a checklist's
+        # original created_at (used as get_all_checklists' secondary
+        # sort key, after priority) across a backup/restore cycle,
+        # instead of every restored checklist silently getting "now"
+        # via the column's own DEFAULT CURRENT_TIMESTAMP and
+        # reshuffling checklist order.
+        cursor.execute('''
+            INSERT INTO checklists (user_id, title, priority, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, title, priority, created_at))
+    else:
+        cursor.execute('''
+            INSERT INTO checklists (user_id, title, priority)
+            VALUES (?, ?, ?)
+        ''', (user_id, title, priority))
     checklist_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -209,20 +245,32 @@ def _checklist_row_to_dict(row):
     }
 
 
-def create_checklist_item(checklist_id, text, parent_id=None):
+def create_checklist_item(checklist_id, text, parent_id=None, checked=False, created_at=None, updated_at=None):
     """
     Creates a new item within a checklist. parent_id=None creates a
     top-level item; pass an existing item's id to create a sub-item
     under it.
     Returns the new item's id.
+
+    checked/created_at/updated_at default to the same "brand-new,
+    unchecked, timestamped now" behavior every existing caller already
+    relies on -- only restore_engine.py passes real values through, to
+    preserve an item's checked state and original timestamps across a
+    backup/restore cycle instead of resetting both on every restore.
     """
     _ensure_tables()
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO checklist_items (checklist_id, parent_id, text, checked)
-        VALUES (?, ?, ?, 0)
-    ''', (checklist_id, parent_id, text))
+    if created_at is not None and updated_at is not None:
+        cursor.execute('''
+            INSERT INTO checklist_items (checklist_id, parent_id, text, checked, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (checklist_id, parent_id, text, 1 if checked else 0, created_at, updated_at))
+    else:
+        cursor.execute('''
+            INSERT INTO checklist_items (checklist_id, parent_id, text, checked)
+            VALUES (?, ?, ?, ?)
+        ''', (checklist_id, parent_id, text, 1 if checked else 0))
     item_id = cursor.lastrowid
     conn.commit()
     conn.close()
