@@ -105,6 +105,20 @@ def _populate_notes(notes, category_id_map):
             category_id=new_category_id,
             is_pinned=note.get("is_pinned", 0),
             is_archived=note.get("is_archived", 0),
+            # task_id was previously dropped on restore -- any note
+            # created from a task (see get_notes_by_task) would come
+            # back unlinked. Passed through now so that link survives
+            # a backup/restore cycle.
+            task_id=note.get("task_id"),
+            # created_at/updated_at were previously left out, so
+            # create_notes() silently stamped every restored note with
+            # "now" for both. Since get_all_notes() sorts by
+            # is_pinned DESC, updated_at DESC, that was quietly
+            # reordering the whole notes list on every restore.
+            # Passing the originals through preserves both real
+            # history and note order.
+            created_at=note.get("created_at"),
+            updated_at=note.get("updated_at"),
         )
         id_map[note["id"]] = new_id
     return id_map
@@ -113,7 +127,28 @@ def _populate_notes(notes, category_id_map):
 def _populate_tasks(tasks):
     id_map = {}
     for task in tasks:
-        new_id = create_tasks(task["title"], task["user_id"])
+        # Previously only title and user_id were passed through, so
+        # every other field (priority, due_date, due_time,
+        # category_id, activity_type, link, carry_forward,
+        # notify_enabled, original_due_date) was silently dropped on
+        # restore -- a task came back as a bare title with nothing
+        # else. create_tasks() already accepts all of these as
+        # kwargs, so they're passed through now. category_id is
+        # remapped through category_id_map like notes' category_id
+        # is, rather than passed as the raw old id, since categories
+        # get new ids on restore too.
+        new_id = create_tasks(
+            task["title"],
+            task["user_id"],
+            priority=task.get("priority"),
+            due_date=task.get("due_date"),
+            due_time=task.get("due_time"),
+            category_id=task.get("category_id"),
+            link=task.get("link", ""),
+            carry_forward=bool(task.get("carry_forward", 0)),
+            notify_enabled=bool(task.get("notify_enabled", 0)),
+            activity_type=task.get("activity_type", "task"),
+        )
         id_map[task["id"]] = new_id
     return id_map
 
@@ -126,7 +161,16 @@ def _populate_reminders(reminders, task_id_map):
             # shouldn't normally happen, but skip rather than create a
             # reminder pointing at a task that doesn't exist.
             continue
-        create_reminder(new_task_id, reminder["remind_at"])
+        new_reminder_id = create_reminder(new_task_id, reminder["remind_at"])
+        # create_reminder() always inserts with is_active defaulting
+        # to 1 (see the reminders table's own DEFAULT 1 in db.py) --
+        # an inactive/already-dismissed reminder was previously coming
+        # back active after restore. deactivate_reminders() is the
+        # only existing way to flip that flag, so it's called here
+        # when the backup says the reminder was inactive.
+        if not reminder.get("is_active", 1):
+            from database.reminder_queries import deactivate_reminders
+            deactivate_reminders(new_reminder_id)
 
 def _populate_calendar_events(events):
     for event in events:
