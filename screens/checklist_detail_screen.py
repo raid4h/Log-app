@@ -146,7 +146,7 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
                     checked_section.add_widget(self._build_item_row(item))
 
         # -- running total (see module docstring) --
-        self._update_total(items)
+        self._update_total(active_items)
 
     def _update_total(self, items):
         # get_items_by_checklist only returns top-level items -- that's

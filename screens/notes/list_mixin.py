@@ -13,6 +13,7 @@ from database.notes_queries import get_all_notes, search_notes as db_search_note
 from screens.notes.helpers import format_last_edited, clean_preview_text
 from screens.category_helpers import list_categories, category_color_rgba, contrasting_text_color
 import user_prefs
+from screens.safe_card import make_safe_card
 
 DEFAULT_NOTEBOOK_ID = 1
 GRID_ROW_HEIGHT = dp(230)
@@ -62,7 +63,11 @@ class NotesListMixin:
     def _build_note_card(self, note, category_lookup, grid_mode=False):
         return NoteCard(
             title=note[2],
-            preview=clean_preview_text(note[3]),
+            # A completely empty string can make an adaptive-height
+            # label fail to compute a real height and fall back to
+            # Kivy's oversized internal default -- forcing a single
+            # space instead avoids that edge case entirely.
+            preview=clean_preview_text(note[3]) or " ",
             note_id=note[0],
             is_pinned=bool(note[4]),
             last_edited=format_last_edited(note[7]),
@@ -123,14 +128,15 @@ class NotesListMixin:
             bold=is_selected,
         )
 
-        chip = _FilterChip(
+        chip = make_safe_card(
+            _FilterChip,
             orientation="horizontal",
             size_hint=(None, None),
             adaptive_size=True,
             padding=(dp(12), dp(6)),
             radius=[16],
             elevation=3 if is_selected else 0,
-            ripple_behavior=True,
+            ripple_behavior=False,
             theme_bg_color="Custom",
             md_bg_color=color_rgba,
         )

@@ -1,0 +1,22 @@
+# Pinned versions for local development (desktop) and as the source of
+# truth for buildozer.spec's `requirements =` line below.
+#
+# KivyMD does not have a stable 2.0 release on PyPI yet -- this app uses
+# 2.0-only APIs (e.g. MDButton/MDButtonText), so we pin an exact commit
+# from the master branch instead of a floating `kivymd` install. Every
+# teammate and the buildozer build MUST use this same commit so nobody
+# hits "works on my machine" API drift.
+#
+# To update the pin: pick a new commit from
+# https://github.com/kivymd/KivyMD/commits/master, replace the hash
+# below AND the matching hash in buildozer.spec's requirements line,
+# then have everyone re-run: pip install -r requirements.txt --force-reinstall
+
+kivy==2.3.1
+kivymd @ https://github.com/kivymd/KivyMD/archive/dbe8ad4619ae942e3485a8f8f5eff295c4cb1db7.zip
+pillow==10.4.0
+materialyoucolor==3.0.3
+asynckivy==0.6.4
+asyncgui==0.6.3
+materialshapes==0.3
+plyer==2.1.0

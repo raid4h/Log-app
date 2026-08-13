@@ -1,5 +1,7 @@
 from database.db import get_connection
 from datetime import datetime
+from database.calendar_queries import get_next_calendar_event
+
 
 def get_today_tasks(user_id, today_date):
     """
@@ -141,26 +143,50 @@ def get_continue_studying(user_id):
 
 
 def get_next_event(user_id):
+    """
+    Powers Home's "Next Up" card. Compares the soonest upcoming task
+    (activity_type 'event' or 'task') against the soonest upcoming
+    calendar reminder, and returns whichever comes first, normalized
+    to due_date/due_time/title/id/category_id -- callers (HomeScreen)
+    don't need to know or care which table it came from.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     cursor.execute('''
         SELECT id, title, due_date, due_time, category_id
         FROM tasks
-        WHERE user_id=? AND activity_type='event' AND is_completed=0
+        WHERE user_id=? AND activity_type IN ('event', 'task') AND is_completed=0
           AND (due_date || ' ' || COALESCE(due_time, '23:59')) >= ?
         ORDER BY due_date ASC, COALESCE(due_time, '23:59') ASC
         LIMIT 1
     ''', (user_id, now_str))
-    row = cursor.fetchone()
+    task_row = cursor.fetchone()
     conn.close()
-    if row is None:
-        return None
-    return {
-        "id": row[0], "title": row[1],
-        "due_date": row[2], "due_time": row[3],
-        "category_id": row[4],
-    }
+
+    task_candidate = None
+    if task_row is not None:
+        task_candidate = {
+            "id": task_row[0], "title": task_row[1],
+            "due_date": task_row[2], "due_time": task_row[3],
+            "category_id": task_row[4],
+        }
+
+    calendar_row = get_next_calendar_event(user_id)
+    calendar_candidate = None
+    if calendar_row is not None:
+        calendar_candidate = {
+            "id": calendar_row["id"], "title": calendar_row["title"],
+            "due_date": calendar_row["event_date"], "due_time": calendar_row["event_time"],
+            "category_id": None,  # calendar_events has no category column
+        }
+
+    def sort_key(item):
+        return f"{item['due_date']} {item['due_time'] or '23:59'}"
+
+    if task_candidate and calendar_candidate:
+        return task_candidate if sort_key(task_candidate) <= sort_key(calendar_candidate) else calendar_candidate
+    return task_candidate or calendar_candidate
 
 def create_study_task(user_id, title, duration):
     conn = get_connection()

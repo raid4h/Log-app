@@ -1,8 +1,15 @@
 import sqlite3
-DB_NAME="MyApp.db"
+import os
+from kivy.app import App
+
+def get_db_path():
+    app = App.get_running_app()
+    if app is not None:
+        return os.path.join(app.user_data_dir, "MyApp.db")
+    return "MyApp.db"  # fallback for scripts/tests run without a running App
 
 def get_connection():
-    conn= sqlite3.connect(DB_NAME)
+    conn= sqlite3.connect(get_db_path())
     return conn
 
 def create_tables():

@@ -2,12 +2,25 @@ __pycache__/
 *.pyc
 *.pyo
 .env
-*.spec
+
+# Buildozer build environment and output artifacts -- these are
+# machine-generated, huge, and differ per developer's SDK/NDK setup, so
+# they must never be committed. buildozer.spec itself IS tracked (it was
+# previously (and wrongly) excluded by a blanket `*.spec` rule here,
+# which would have kept every teammate's build config out of the repo).
+.buildozer/
 bin/
-MyApp.db 
+*.apk
+*.aab
+
+# Local SQLite DB -- created fresh on first run (see database/db.py),
+# never shared between developers or committed.
+MyApp.db
 note_attachments/
 exported_notes/
 trash.json
 user_prefs.json
-"tempCodeRunnerFile.py" 
+tempCodeRunnerFile.py
 theme_prefs.json
+venv/
+.venv/

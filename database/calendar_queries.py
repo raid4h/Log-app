@@ -286,3 +286,30 @@ def _row_to_dict(row):
         "missed_days": row[9],
         "created_at": row[10],
     }
+    
+def get_next_calendar_event(user_id):
+    """
+    Returns the soonest upcoming, not-completed calendar event for a
+    user (today or later, ordered by date then time — untimed events
+    on a given date sort before timed ones, same convention as
+    get_events_by_date). Returns a dict, or None if there's nothing
+    upcoming. Read-only addition for HomeScreen's "Next Up" card --
+    does not affect any other calendar_queries function.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    today_str = date.today().isoformat()
+    cursor.execute('''
+        SELECT id, user_id, title, event_date, event_time, event_link,
+               is_recurring, completed, original_date, missed_days, created_at
+        FROM calendar_events
+        WHERE user_id = ? AND completed = 0 AND event_date >= ?
+        ORDER BY
+            event_date ASC,
+            CASE WHEN event_time IS NULL OR event_time = '' THEN 0 ELSE 1 END,
+            event_time ASC
+        LIMIT 1
+    ''', (user_id, today_str))
+    row = cursor.fetchone()
+    conn.close()
+    return _row_to_dict(row) if row else None

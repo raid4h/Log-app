@@ -1,18 +1,24 @@
 # screens/editor/paths.py
-# Central place for filesystem paths and small shared constants used
-# across the note editor's helper modules, so every module agrees on
-# these instead of each hardcoding or recalculating its own copy.
 import os
+from kivy.app import App
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))     # .../screens/editor
-PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))  # two levels up -> project root
+def _project_root():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(this_dir))
 
-FONTS_DIR = os.path.join(PROJECT_ROOT, "fonts")
-ATTACHMENTS_DIR = os.path.join(PROJECT_ROOT, "note_attachments")
-EXPORTS_DIR = os.path.join(PROJECT_ROOT, "exported_notes")
+def _writable_root():
+    app = App.get_running_app()
+    if app is not None:
+        return app.user_data_dir
+    return _project_root()
 
-# Week 3 TEMP: every note needs a notebook_id, but there's no notebook
-# creation/selection screen yet -- same placeholder used in
-# notes_screen.py, kept here too since image_mixin needs it when
-# auto-creating a blank note for a first photo attachment.
+PROJECT_ROOT = _project_root()
+FONTS_DIR = os.path.join(PROJECT_ROOT, "fonts")  # read-only bundled asset, fine as a constant
+
+def get_attachments_dir():
+    return os.path.join(_writable_root(), "note_attachments")
+
+def get_exports_dir():
+    return os.path.join(_writable_root(), "exported_notes")
+
 DEFAULT_NOTEBOOK_ID = 1

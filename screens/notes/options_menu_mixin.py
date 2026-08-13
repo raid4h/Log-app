@@ -11,6 +11,8 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.button import MDIconButton
 
+from screens.safe_card import make_safe_card
+
 
 class _MenuRow(ButtonBehavior, MDBoxLayout):
     # A single tappable row inside the options menu.
@@ -39,7 +41,7 @@ class OptionsMenuMixin:
         target_x = max(target_x, dp(8))
         target_y = max(button_y - menu_height - dp(4), dp(8))
 
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical",
             size_hint=(None, None),
             size=(menu_width, menu_height),

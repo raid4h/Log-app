@@ -237,23 +237,34 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             due_date = next_event["due_date"]
             due_time = next_event["due_time"] or ""
 
-            self.ids.up_next_tile.label = next_event["title"]
-            self.ids.up_next_tile.subtitle = due_time
-            self._next_event_id = next_event["id"]
-
-            if next_event["due_time"]:
+            if due_time:
                 due_datetime = datetime.strptime(f"{due_date} {due_time}", "%Y-%m-%d %H:%M")
             else:
                 due_datetime = datetime.strptime(due_date, "%Y-%m-%d")
 
+            self.ids.up_next_tile.label = next_event["title"]
+            self._next_event_id = next_event["id"]
+
+            # Subtitle: bare time only if it's today, otherwise show the date too
+            if due_datetime.date() == datetime.now().date():
+                self.ids.up_next_tile.subtitle = due_time or "Today"
+            else:
+                self.ids.up_next_tile.subtitle = due_datetime.strftime("%a, %d %b") + (f" · {due_time}" if due_time else "")
+
             minutes_until = int((due_datetime - datetime.now()).total_seconds() // 60)
+            hours_until = minutes_until // 60
 
             if minutes_until < 60:
                 self.ids.up_next_tile.stat_number = str(max(minutes_until, 0))
                 self.ids.up_next_tile.stat_label = "min"
+            elif hours_until < 24:
+                self.ids.up_next_tile.stat_number = str(hours_until)
+                self.ids.up_next_tile.stat_label = "hr" if hours_until == 1 else "hrs"
             else:
-                self.ids.up_next_tile.stat_number = str(minutes_until // 60)
-                self.ids.up_next_tile.stat_label = "hr" if minutes_until // 60 == 1 else "hrs"
+                days_until = hours_until // 24
+                self.ids.up_next_tile.stat_number = str(days_until)
+                self.ids.up_next_tile.stat_label = "day" if days_until == 1 else "days"
+        
         else:
             self.ids.up_next_tile.label = "Nothing scheduled"
             self.ids.up_next_tile.subtitle = ""

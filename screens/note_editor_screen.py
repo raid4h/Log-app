@@ -21,6 +21,7 @@ from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 --
 
 from database.notes_queries import get_notes_by_id, create_notes, update_notes, duplicate_notes
 
+from screens.safe_card import make_safe_card
 from theme.theme_manager import theme_manager
 from theme.themed_screen import ThemedScreenMixin
 from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_SECONDARY, CARD_PRIMARY, ACCENT
@@ -38,13 +39,9 @@ from screens.editor.image_mixin import ImageAttachmentMixin
 from screens.editor.link_mixin import HyperlinkMixin
 from screens.editor.export_mixin import ExportMixin
 from screens.editor.delete_mixin import DeleteConfirmationMixin
-from screens.editor.calculator import process_calculator_lines, format_calculated_number
 from screens.editor.category_mixin import CategoryMixin, CategoryPillButton  # noqa: F401
 from screens.editor.delete_mixin import DeleteConfirmationMixin
 
-# Material Design's standard "compact vs medium" width breakpoint --
-# below this, treat the device as a phone; at or above, a tablet.
-COMPACT_WIDTH_BREAKPOINT = dp(600)
 
 
 class NoteEditorScreen(
@@ -135,30 +132,7 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
-        # Watches for the window being resized (or, on a real device,
-        # rotated) -- moves the toolbar between docked/floating
-        # placement whenever that crosses the compact-width breakpoint.
-        Window.bind(width=self._on_window_width_changed)
-        self._apply_toolbar_placement()
 
-    def _on_window_width_changed(self, instance, width):
-        self._apply_toolbar_placement()
-
-    def _apply_toolbar_placement(self):
-        compact = Window.width < COMPACT_WIDTH_BREAKPOINT
-        if compact == self.is_compact and self.ids.formatting_toolbar.parent is not None:
-            # No actual change -- avoid needless reparenting on every
-            # tiny resize event.
-            return
-        self.is_compact = compact
-
-        toolbar = self.ids.formatting_toolbar
-        target = self.ids.toolbar_bottom_slot if compact else self.ids.toolbar_top_slot
-
-        if toolbar.parent is not None:
-            toolbar.parent.remove_widget(toolbar)
-        target.add_widget(toolbar)
-        toolbar.is_compact = compact
 
     def _current_snapshot(self):
         field = self.ids.content_field
@@ -284,12 +258,7 @@ class NoteEditorScreen(
         self._preview_link_map = {}
         self._link_ref_counter = 0
 
-        # Calculator pass -- runs on the whole note's text BEFORE
-        # splitting on image tokens, so the grand total accounts for
-        # every line regardless of where a photo sits in the note.
-        display_text, grand_total, uses_currency = process_calculator_lines(raw)
-
-        parts = IMAGE_TOKEN_PATTERN.split(display_text)
+        parts = IMAGE_TOKEN_PATTERN.split(raw)
 
         for i, part in enumerate(parts):
             if i % 2 == 1:
@@ -319,21 +288,6 @@ class NoteEditorScreen(
                 label.bind(on_ref_press=self._on_preview_link_pressed)
                 self._preview_content.add_widget(label)
 
-        # Grand total, shown once at the very end of the preview --
-        # only appears at all if at least one number was found
-        # anywhere in the note.
-        if grand_total is not None:
-            currency_prefix = "$" if uses_currency else ""
-            total_label = Label(
-                text=f"[b]Total: {currency_prefix}{format_calculated_number(grand_total)}[/b]",
-                markup=True, size_hint_y=None, color=(0.29, 0.20, 0.15, 1),
-                halign=self.ids.content_field.halign, valign="top",
-                font_size=self.ids.content_field.font_size,
-                font_name=self.ids.content_field.font_name,
-            )
-            total_label.bind(width=lambda inst, val: setattr(inst, "text_size", (val, None)))
-            total_label.bind(texture_size=lambda inst, val: setattr(inst, "height", val[1]))
-            self._preview_content.add_widget(total_label)
 
         container = self.ids.content_container
         if self.ids.content_field.parent is not None:
@@ -390,7 +344,7 @@ class NoteEditorScreen(
             self.go_back()
 
     def _show_unsaved_changes_prompt(self):
-        card = MDCard(
+        card = make_safe_card(MDCard,
             orientation="vertical", padding=dp(20), spacing=dp(16),
             radius=[16], size_hint=(None, None), size=(dp(340), dp(180)),
             theme_bg_color="Custom", md_bg_color=(0.97, 0.95, 0.90, 1),
