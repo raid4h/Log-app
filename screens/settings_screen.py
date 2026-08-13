@@ -1,4 +1,5 @@
 from kivymd.uix.screen import MDScreen
+from kivymd.uix.snackbar import MDSnackbar, MDSnackbarText
 from kivy.app import App
 
 from theme.theme_manager import theme_manager
@@ -51,7 +52,6 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
         # About
         "about_card":                ("md_bg_color", CARD_SECONDARY),
         "about_section_label":       ("text_color", ACCENT),
-        "rate_row_label":            ("text_color", TEXT_PRIMARY),
         "privacy_policy_row_label":  ("text_color", TEXT_PRIMARY),
         "footer_label":              ("text_color", TEXT_SECONDARY),
 
@@ -59,7 +59,6 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
         "export_chevron":         ("icon_color", TEXT_SECONDARY),
         "import_chevron":         ("icon_color", TEXT_SECONDARY),
         "privacy_chevron":        ("icon_color", TEXT_SECONDARY),
-        "rate_chevron":           ("icon_color", TEXT_SECONDARY),
         "privacy_policy_chevron": ("icon_color", TEXT_SECONDARY),
     }
 
@@ -79,50 +78,67 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
     def set_matcha_theme(self):
         theme_manager.set_matcha_theme()
 
+    # ── small helper: user-visible feedback, replaces the old
+    # print()-only callbacks. A snackbar is used rather than a dialog
+    # since export/import success or failure doesn't need the user to
+    # dismiss anything -- it's a brief confirmation, not a decision. ──
+    def _show_snackbar(self, message):
+        MDSnackbar(
+            MDSnackbarText(text=message),
+            y="24dp",
+            pos_hint={"center_x": 0.5},
+            size_hint_x=0.9,
+        ).open()
+
     # ── backup: export/import only (offline app, no cloud) ──
     def export_to_file(self):
         # NOTE: the exported file is PLAIN, UNENCRYPTED JSON -- anyone
         # with access to it can read every note it contains.
-        from services.manual_export import export_backup_to_file
+        from services.manual_export import export_backup_to_file, ExportCancelled
 
         def on_success(file_path):
-            print(f"Backup exported to {file_path}")
-            # TODO: replace with real MDSnackbar/toast feedback.
+            self._show_snackbar("Backup exported successfully.")
 
         def on_error(exc):
-            print(f"Export failed: {exc}")
-            # TODO: real user-visible error feedback.
+            if isinstance(exc, ExportCancelled):
+                # User just closed the picker -- not a real error,
+                # nothing worth interrupting them about.
+                return
+            self._show_snackbar("Export failed. Please try again.")
 
         export_backup_to_file(on_success, on_error)
 
     def import_from_file(self):
-        from services.manual_export import import_backup_from_file
+        from services.manual_export import import_backup_from_file, ImportCancelled
+        from services.restore_engine import RestoreError
 
         def on_success():
-            print("Backup imported successfully.")
-            # TODO: real UI feedback, and consider refreshing/
-            # navigating away from any screen showing now-stale data.
+            self._show_snackbar("Backup imported successfully.")
+            # TODO: consider refreshing/navigating away from any
+            # screen currently showing now-stale data (e.g. if the
+            # user imports while sitting on the Notes list).
 
         def on_error(exc):
-            print(f"Import failed: {exc}")
-            # TODO: real UI feedback.
+            if isinstance(exc, ImportCancelled):
+                return
+            if isinstance(exc, RestoreError):
+                self._show_snackbar(str(exc))
+            else:
+                self._show_snackbar("Import failed. Please try again.")
 
         import_backup_from_file(on_success, on_error)
 
     # ── privacy ──
     def open_privacy_settings(self):
-        pass
+        App.get_running_app().root.current = "privacy_settings"
 
     # ── notifications ──
     def toggle_notifications(self):
         pass
 
     # ── about ──
-    def rate_app(self):
-        pass
-
     def open_privacy_policy(self):
-        pass
+        App.get_running_app().root.current = "privacy_policy"
 
     # ── navigation ──
     def go_back(self):

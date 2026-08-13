@@ -10,9 +10,8 @@
         spacing: dp(14)
 
         # =====================================================
-        # Top bar: back button + title/subtitle + history icon.
-        # Matches SettingsScreen's header shape, extended with a
-        # right-aligned icon for the session history popup.
+        # Top bar: back button + title/subtitle.
+        # Matches SettingsScreen's header shape.
         # =====================================================
 
         MDBoxLayout:
@@ -44,13 +43,6 @@
                     theme_text_color: "Custom"
                     font_style: "Body"
                     role: "small"
-
-            MDIconButton:
-                id: history_button
-                icon: "history"
-                theme_icon_color: "Custom"
-                pos_hint: {"center_y": 0.5}
-                on_release: root.open_session_history()
 
         # =====================================================
         # Centered cluster: hourglass, timer, session info,

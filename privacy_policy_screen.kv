@@ -1,0 +1,52 @@
+# privacy_policy_screen.kv
+# Read-only scrollable Privacy Policy. Same header shape as
+# settings_screen.kv/privacy_settings_screen.kv.
+
+<PrivacyPolicyScreen>:
+
+    MDBoxLayout:
+        orientation: "vertical"
+        padding: dp(20)
+        spacing: dp(14)
+
+        MDBoxLayout:
+            size_hint_y: None
+            height: dp(56)
+            spacing: dp(8)
+
+            MDIconButton:
+                id: back_button
+                icon: "arrow-left"
+                theme_icon_color: "Custom"
+                on_release: root.go_back()
+
+            MDBoxLayout:
+                orientation: "vertical"
+
+                MDLabel:
+                    id: header_label
+                    text: "Privacy Policy"
+                    theme_text_color: "Custom"
+                    font_style: "Title"
+                    role: "medium"
+
+                MDLabel:
+                    id: subtitle_label
+                    text: "How NoteNest handles your data"
+                    theme_text_color: "Custom"
+                    font_style: "Body"
+                    role: "small"
+
+        ScrollView:
+            do_scroll_x: False
+
+            MDLabel:
+                id: policy_label
+                text: ""
+                theme_text_color: "Custom"
+                font_style: "Body"
+                role: "small"
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                padding: dp(4), dp(8)

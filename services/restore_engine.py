@@ -70,22 +70,25 @@ def _temporary_database(db_path):
     Temporarily points every existing database/*_queries.py function at
     a different SQLite file, without changing a single line of their
     code. Every one of those functions ultimately calls
-    database.db.get_connection(), which re-reads the module-level
-    DB_NAME each time it's called -- so swapping that value for the
-    duration of this block redirects all of them at once.
+    database.db.get_connection(), which calls database.db.get_db_path()
+    (a plain module-level name lookup, resolved fresh every call) --
+    so replacing THAT function for the duration of this block redirects
+    every one of them at once, the same way this used to work by
+    swapping a module-level DB_NAME constant, before db.py switched to
+    computing the path dynamically via App.user_data_dir.
 
     NOTE: this relies on NoteNest being single-threaded, which it is
     today (Kivy's event loop runs on one thread, and nothing here
     spawns background threads). If background/threaded database access
     is ever added later, this approach would need revisiting, since
-    two threads could briefly see different DB_NAME values at once.
+    two threads could briefly see different get_db_path values at once.
     """
-    original_db_name = db.DB_NAME
-    db.DB_NAME = db_path
+    original_get_db_path = db.get_db_path
+    db.get_db_path = lambda: db_path
     try:
         yield
     finally:
-        db.DB_NAME = original_db_name
+        db.get_db_path = original_get_db_path
 
 
 def _populate_categories(categories):
@@ -282,9 +285,9 @@ def restore_from_manifest(manifest):
     data = manifest["data"]
 
     # Captured BEFORE _temporary_database ever runs, since that context
-    # manager temporarily reassigns db.DB_NAME -- this is the real,
+    # manager temporarily reassigns db.get_db_path -- this is the real,
     # final destination path we'll swap into at the very end.
-    target_db_path = os.path.abspath(db.DB_NAME)
+    target_db_path = os.path.abspath(db.get_db_path())
 
     # The temp file MUST live on the same drive/filesystem as the
     # live database, or the final os.replace() below fails with

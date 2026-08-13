@@ -28,7 +28,7 @@
 
                 MDLabel:
                     id: subtitle_label
-                    text: "Customize your NoteNest experience"
+                    text: "Customize your Log experience"
                     theme_text_color: "Custom"
                     font_style: "Body"
                     role: "small"
@@ -263,30 +263,11 @@
 
                     MDLabel:
                         id: about_section_label
-                        text: "About NoteNest"
+                        text: "About Log"
                         theme_text_color: "Custom"
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
-
-                    MDBoxLayout:
-                        size_hint_y: None
-                        height: dp(40)
-                        spacing: dp(8)
-
-                        MDLabel:
-                            id: rate_row_label
-                            text: "Rate app"
-                            theme_text_color: "Custom"
-                            font_style: "Title"
-                            role: "small"
-
-                        MDIconButton:
-                            id: rate_chevron
-                            icon: "chevron-right"
-                            theme_icon_color: "Custom"
-                            pos_hint: {"center_y": 0.5}
-                            on_release: root.rate_app()
 
                     MDBoxLayout:
                         size_hint_y: None

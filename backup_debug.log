@@ -1,0 +1,11 @@
+
+--- IMPORT (unexpected exception) ---
+Traceback (most recent call last):
+  File "E:\NoteNest\services\manual_export.py", line 116, in handle_selection
+    restore_from_path(source_path)
+  File "E:\NoteNest\services\restore_engine.py", line 338, in restore_from_path
+    restore_from_manifest(manifest)
+  File "E:\NoteNest\services\restore_engine.py", line 287, in restore_from_manifest
+    target_db_path = os.path.abspath(db.DB_NAME)
+                                     ^^^^^^^^^^
+AttributeError: module 'database.db' has no attribute 'DB_NAME'

@@ -19,6 +19,11 @@ from kivy.core.window import Window
 from screens.checklist_screen import ChecklistScreen
 from screens.checklist_detail_screen import ChecklistDetailScreen
 from screens.privacy_settings_screen import PrivacySettingsScreen
+from screens.terms_screen import TermsScreen
+from screens.privacy_policy_screen import PrivacyPolicyScreen
+
+from legal_content import TERMS_VERSION
+from services.legal_store import has_agreed_to_version
 
 from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 
@@ -70,6 +75,8 @@ class NoteNestApp(MDApp):
         Builder.load_file("checklist_screen.kv")
         Builder.load_file("checklist_detail_screen.kv")
         Builder.load_file("privacy_settings_screen.kv")
+        Builder.load_file("terms_screen.kv")
+        Builder.load_file("privacy_policy_screen.kv")
 
         self.sm = ScreenManager()
         self.sm.add_widget(HomeScreen(name="home"))
@@ -82,13 +89,62 @@ class NoteNestApp(MDApp):
         self.sm.add_widget(ChecklistScreen(name="checklist"))
         self.sm.add_widget(ChecklistDetailScreen(name="checklist_detail"))
         self.sm.add_widget(PrivacySettingsScreen(name="privacy_settings"))
-        self.sm.current = "home"
+        self.sm.add_widget(TermsScreen(name="terms"))
+        self.sm.add_widget(PrivacyPolicyScreen(name="privacy_policy"))
+
+        # Gate: only go straight to "home" if the user has already
+        # agreed to the CURRENT version of the terms. Otherwise --
+        # first-ever launch, or an existing install after
+        # legal_content.TERMS_VERSION was bumped -- land on "terms"
+        # instead. TermsScreen.agree() is the only path that sets
+        # sm.current to "home" from there, and there's no back button
+        # on that screen, so this is a hard gate, not just a default
+        # starting tab.
+        if has_agreed_to_version(TERMS_VERSION):
+            self.sm.current = "home"
+        else:
+            self.sm.current = "terms"
 
         root = RootLayout(orientation="vertical")
         root.sm = self.sm
         root.add_widget(self.sm)
-        root.add_widget(self.build_bottom_nav())
+        self.nav_bar = self.build_bottom_nav()
+        root.add_widget(self.nav_bar)
+
+        # The bottom nav bar sits OUTSIDE the ScreenManager (it's a
+        # sibling in RootLayout, always on screen regardless of which
+        # screen is current) -- so without this, a user on "terms"
+        # could just tap Home/Calendar/Notes/Timer and bypass the
+        # agreement gate entirely, never having agreed to anything.
+        # Binding to sm.current keeps the nav bar's visibility in sync
+        # with whatever screen is actually showing, closing that gap.
+        self.sm.bind(current=self._on_screen_changed)
+        self._update_nav_visibility(self.sm.current)
+
         return root
+
+    def _on_screen_changed(self, instance, value):
+        self._update_nav_visibility(value)
+
+    def _update_nav_visibility(self, screen_name):
+        is_gated_screen = screen_name == "terms"
+        # height=0 removes it from layout (so the ScreenManager above
+        # it expands to fill the freed space, rather than leaving a
+        # blank bar-shaped gap); disabled=True additionally blocks
+        # any touch from reaching the icon buttons underneath, since a
+        # zero-height widget with children can still technically be
+        # hit in some edge cases -- belt and suspenders for something
+        # this important. opacity=0 is redundant with height=0 here
+        # but kept for a clean instant fade if this is ever animated
+        # later.
+        if is_gated_screen:
+            self.nav_bar.height = 0
+            self.nav_bar.opacity = 0
+            self.nav_bar.disabled = True
+        else:
+            self.nav_bar.height = dp(64)
+            self.nav_bar.opacity = 1
+            self.nav_bar.disabled = False
 
     def build_bottom_nav(self):
         nav = MDBoxLayout(
