@@ -18,6 +18,7 @@ from theme.theme_manager import theme_manager
 from kivy.core.window import Window
 from screens.checklist_screen import ChecklistScreen
 from screens.checklist_detail_screen import ChecklistDetailScreen
+from screens.privacy_settings_screen import PrivacySettingsScreen
 
 from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 
@@ -59,7 +60,7 @@ class NoteNestApp(MDApp):
         # correct theme_name needs to already be set first.
 
         theme_manager.load_saved_theme()
-        
+
         self.title = "NoteNest"
         Builder.load_file("home_screen.kv")  # Tabshira: DashboardTile, SmallTile, HomeScreen
         Builder.load_file("notes.kv")  # Raidah: NoteCard, AttachmentThumbnail, NotesScreen, NoteEditorScreen, FormattingToolbar, RecentlyDeletedScreen
@@ -68,6 +69,7 @@ class NoteNestApp(MDApp):
         Builder.load_file("calendar_screen.kv")
         Builder.load_file("checklist_screen.kv")
         Builder.load_file("checklist_detail_screen.kv")
+        Builder.load_file("privacy_settings_screen.kv")
 
         self.sm = ScreenManager()
         self.sm.add_widget(HomeScreen(name="home"))
@@ -79,6 +81,7 @@ class NoteNestApp(MDApp):
         self.sm.add_widget(CalendarScreen(name="calendar"))
         self.sm.add_widget(ChecklistScreen(name="checklist"))
         self.sm.add_widget(ChecklistDetailScreen(name="checklist_detail"))
+        self.sm.add_widget(PrivacySettingsScreen(name="privacy_settings"))
         self.sm.current = "home"
 
         root = RootLayout(orientation="vertical")

@@ -31,6 +31,8 @@ from models.reminder import Reminder
 
 from database.calendar_queries import get_all_events
 
+from services.checklist_store import get_all_checklists, get_all_items_flat
+
 from screens.editor.paths import DEFAULT_NOTEBOOK_ID
 
 # The current manifest format version. Bump this only when the
@@ -45,6 +47,12 @@ SCHEMA_VERSION = 1
 # Calendar feature, separate from the existing task-linked
 # "reminders" list).
 SCHEMA_VERSION = 2
+
+# v3: added "checklists" and "checklist_items" (the Checklist
+# feature's own tables, stored independently of every other table
+# above via services/checklist_store.py -- previously missing from
+# every backup entirely).
+SCHEMA_VERSION = 3
 
 # The app doesn't yet have real multi-user accounts (no
 # user_queries.py, no login screen) -- categories and tasks still
@@ -140,6 +148,21 @@ def _collect_trash():
     return trash_store.get_trash_entries()
 
 
+def _collect_checklists():
+    # checklist_store.py already returns plain dicts (same pattern as
+    # calendar_queries.py) -- no model-mapping step needed. Scoped to
+    # DEFAULT_USER_ID for the same reason categories/tasks are.
+    return get_all_checklists(DEFAULT_USER_ID)
+
+
+def _collect_checklist_items():
+    # get_all_items_flat() returns EVERY item across EVERY checklist
+    # (top-level and sub-items alike, in id order) in one call -- see
+    # its own docstring, which already flags it as intended for this
+    # exact use.
+    return get_all_items_flat()
+
+
 def _compute_checksum(data):
     # sort_keys=True is what makes this deterministic -- the same
     # data always produces the same checksum regardless of what order
@@ -164,6 +187,8 @@ def build_backup_manifest():
     calendar_events = _collect_calendar_events()
     attachments = _collect_attachments(notes)
     trash = _collect_trash()
+    checklists = _collect_checklists()
+    checklist_items = _collect_checklist_items()
 
     data = {
         "notebooks": [],
@@ -174,6 +199,8 @@ def build_backup_manifest():
         "calendar_events": calendar_events,
         "attachments": attachments,
         "trash": trash,
+        "checklists": checklists,
+        "checklist_items": checklist_items,
     }
 
     return {

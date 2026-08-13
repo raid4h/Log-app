@@ -21,6 +21,12 @@ from database.reminder_queries import create_reminder
 from database.attachment_queries import create_attachment
 import trash_store
 
+from services.checklist_store import (
+    ensure_checklist_tables,
+    create_checklist,
+    create_checklist_item,
+)
+
 from services.backup_builder import SCHEMA_VERSION, verify_manifest_checksum
 
 
@@ -219,6 +225,50 @@ def _populate_trash(trash_entries, category_id_map):
         )
 
 
+def _populate_checklists(checklists):
+    id_map = {}
+    for checklist in checklists:
+        new_id = create_checklist(
+            checklist["title"],
+            priority=checklist.get("priority", ""),
+            user_id=checklist["user_id"],
+            created_at=checklist.get("created_at"),
+        )
+        id_map[checklist["id"]] = new_id
+    return id_map
+
+
+def _populate_checklist_items(items, checklist_id_map):
+    # get_all_items_flat() (the backup source, in backup_builder.py)
+    # orders by id ASC, and a sub-item's id is always created after
+    # its parent's -- so parent rows always appear before their
+    # children here, meaning item_id_map already has the parent's new
+    # id by the time a sub-item needs to look it up.
+    item_id_map = {}
+    for item in items:
+        new_checklist_id = checklist_id_map.get(item["checklist_id"])
+        if new_checklist_id is None:
+            # The checklist this item belonged to wasn't restored --
+            # shouldn't normally happen, skip rather than create an
+            # orphaned item.
+            continue
+
+        old_parent_id = item.get("parent_id")
+        new_parent_id = (
+            item_id_map.get(old_parent_id) if old_parent_id is not None else None
+        )
+
+        new_id = create_checklist_item(
+            new_checklist_id,
+            item["text"],
+            parent_id=new_parent_id,
+            checked=item.get("checked", False),
+            created_at=item.get("created_at"),
+            updated_at=item.get("updated_at"),
+        )
+        item_id_map[item["id"]] = new_id
+
+
 def restore_from_manifest(manifest):
     """
     Safely restores the app's data from a manifest dictionary. Builds
@@ -250,6 +300,14 @@ def restore_from_manifest(manifest):
         with _temporary_database(temp_path):
             db.create_tables()
             create_calendar_events_table()
+            # checklists/checklist_items live outside db.py's
+            # create_tables() (see checklist_store.py's own
+            # docstring) -- ensure_checklist_tables() is the
+            # temp-database-aware way to guarantee they exist here
+            # too, since the module's usual _ensure_tables() guard
+            # would otherwise think it already did this against the
+            # REAL database and skip it for this temp one.
+            ensure_checklist_tables()
 
             category_id_map = _populate_categories(data.get("categories", []))
             note_id_map = _populate_notes(data.get("notes", []), category_id_map)
@@ -258,6 +316,8 @@ def restore_from_manifest(manifest):
             _populate_calendar_events(data.get("calendar_events", []))
             _populate_attachments(data.get("attachments", []), note_id_map)
             _populate_trash(data.get("trash", []), category_id_map)
+            checklist_id_map = _populate_checklists(data.get("checklists", []))
+            _populate_checklist_items(data.get("checklist_items", []), checklist_id_map)
 
         # Reached only if every step above completed without raising.
         os.replace(temp_path, target_db_path)
