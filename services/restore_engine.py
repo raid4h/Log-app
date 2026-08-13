@@ -6,13 +6,24 @@
 # file, fully populates and checks it, and only replaces the live
 # database with it after every step has succeeded. If anything fails
 # partway through, the live database is left completely untouched.
+#
+# Notes, Tasks, Categories, Attachments, and Trash are still a full
+# REPLACE on import -- only what's in the backup file survives,
+# exactly as this has always worked.
+#
+# Calendar events and Checklists are different: they MERGE instead.
+# Whatever currently exists live gets combined with the backup's data
+# (with basic duplicate detection -- see _merge_calendar_events and
+# _merge_checklists_and_items below), so importing a backup can never
+# silently erase a calendar event or checklist you added after that
+# backup was taken.
 
 import contextlib
 import json
 import os
 import tempfile
 
-from database.calendar_queries import create_calendar_events_table, create_event
+from database.calendar_queries import create_calendar_events_table, create_event, get_all_events
 import database.db as db
 from database.category_queries import create_category
 from database.notes_queries import create_notes
@@ -25,9 +36,11 @@ from services.checklist_store import (
     ensure_checklist_tables,
     create_checklist,
     create_checklist_item,
+    get_all_checklists,
+    get_all_items_flat,
 )
 
-from services.backup_builder import SCHEMA_VERSION, verify_manifest_checksum
+from services.backup_builder import SCHEMA_VERSION, verify_manifest_checksum, DEFAULT_USER_ID
 
 
 class RestoreError(Exception):
@@ -193,11 +206,15 @@ def _populate_calendar_events(events):
         )
         # create_event() always starts a fresh row with completed=0,
         # original_date=event_date, missed_days=0 (see its own
-        # docstring) -- restoring a recurring reminder's exact
-        # completed/missed_days state isn't attempted here, since the
+        # docstring) -- this was already true for every restore, even
+        # before events merged, since EVERY event (backup or, now,
+        # existing-live) is recreated via create_event() here. The
         # very next roll_forward_recurring_events() call (which runs
         # every time the Calendar screen opens) will recompute
-        # missed_days correctly from today's date anyway.
+        # missed_days correctly from today's date anyway, so this
+        # isn't a new regression from merging -- just an existing,
+        # already-accepted limitation that now also applies to
+        # previously-live events instead of only backup ones.
 
 def _populate_attachments(attachments, note_id_map):
     for attachment in attachments:
@@ -228,6 +245,151 @@ def _populate_trash(trash_entries, category_id_map):
         )
 
 
+def _merge_calendar_events(existing_events, backup_events):
+    """
+    Combines the CURRENT live calendar events with the backup's
+    events, so import ADDS to the calendar instead of replacing it.
+    A backup event is treated as "the same" as an existing one when
+    its title, event_date, and event_time all match exactly -- in
+    that case the backup's copy is skipped (the existing one is kept
+    as-is); otherwise it's added.
+    """
+    merged = list(existing_events)
+    seen_keys = {
+        (e.get("title"), e.get("event_date"), e.get("event_time"))
+        for e in existing_events
+    }
+    for event in backup_events:
+        key = (event.get("title"), event.get("event_date"), event.get("event_time"))
+        if key in seen_keys:
+            continue
+        merged.append(event)
+        seen_keys.add(key)
+    return merged
+
+
+def _merge_checklists_and_items(existing_checklists, existing_items, backup_checklists, backup_items):
+    """
+    Combines the CURRENT live checklists/items with the backup's, so
+    import ADDS content instead of replacing it.
+
+    A backup checklist is treated as "the same" as an existing one
+    when title+priority match -- in that case the backup's ITEMS are
+    merged into the EXISTING checklist rather than creating a
+    duplicate checklist row. Otherwise the backup checklist (and its
+    full item tree) is added as new.
+
+    Item-level dedup only applies to TOP-LEVEL items within a matched
+    checklist, matched by exact text -- if a backup top-level item's
+    text already exists there, that item AND its whole sub-item tree
+    is skipped (assumed to be the same item already present).
+    Sub-items are not independently deduped beyond that -- a
+    deliberate simplification, not an oversight, since fully general
+    nested-item matching adds a lot of complexity for little real
+    benefit here.
+
+    Every entry returned (checklists and items alike) carries a
+    "_merge_key" -- a synthetic, merge-internal identity used ONLY by
+    _populate_checklists/_populate_checklist_items below, since
+    existing-live ids and backup ids come from two completely
+    different, unrelated databases and could otherwise collide by
+    coincidence (e.g. existing checklist #5 and an unrelated backup
+    checklist #5). Never written to the database itself.
+    """
+    merged_checklists = []
+    checklist_merge_key_by_existing_id = {}
+
+    # Every existing checklist is always kept.
+    for checklist in existing_checklists:
+        merge_key = ("existing", checklist["id"])
+        checklist_merge_key_by_existing_id[checklist["id"]] = merge_key
+        entry = dict(checklist)
+        entry["_merge_key"] = merge_key
+        merged_checklists.append(entry)
+
+    existing_checklist_index = {
+        (c.get("title"), c.get("priority", "")): checklist_merge_key_by_existing_id[c["id"]]
+        for c in existing_checklists
+    }
+
+    # backup checklist's own (backup-file) id -> the merge_key its
+    # items should attach to, whether that's a matched EXISTING
+    # checklist or a newly-added backup one.
+    backup_checklist_target = {}
+    for checklist in backup_checklists:
+        dedup_key = (checklist.get("title"), checklist.get("priority", ""))
+        if dedup_key in existing_checklist_index:
+            backup_checklist_target[checklist["id"]] = existing_checklist_index[dedup_key]
+            continue
+        merge_key = ("backup", checklist["id"])
+        backup_checklist_target[checklist["id"]] = merge_key
+        entry = dict(checklist)
+        entry["_merge_key"] = merge_key
+        merged_checklists.append(entry)
+
+    # -- items --
+    merged_items = []
+
+    existing_item_merge_key_by_id = {}
+    existing_top_level_index = {}  # (checklist_merge_key, text) -> True
+    for item in existing_items:
+        checklist_merge_key = checklist_merge_key_by_existing_id.get(item["checklist_id"])
+        if checklist_merge_key is None:
+            continue
+        merge_key = ("existing", item["id"])
+        existing_item_merge_key_by_id[item["id"]] = merge_key
+        entry = dict(item)
+        entry["_merge_key"] = merge_key
+        entry["_checklist_merge_key"] = checklist_merge_key
+        entry["_parent_merge_key"] = (
+            existing_item_merge_key_by_id.get(item["parent_id"])
+            if item.get("parent_id") is not None else None
+        )
+        merged_items.append(entry)
+        if item.get("parent_id") is None:
+            existing_top_level_index[(checklist_merge_key, item["text"])] = True
+
+    # backup items -- relies on backup_items being ordered so a
+    # parent always appears before its own sub-items (already
+    # guaranteed by get_all_items_flat's "ORDER BY id ASC" plus a
+    # sub-item's id always being created after its parent's -- see
+    # backup_builder.py's _collect_checklist_items). skipped_ids
+    # tracks any backup item (duplicate OR orphaned) so its own
+    # sub-items get skipped too, instead of incorrectly reattaching as
+    # new top-level items.
+    backup_item_merge_key_by_id = {}
+    skipped_ids = set()
+    for item in backup_items:
+        old_id = item["id"]
+        parent_old_id = item.get("parent_id")
+
+        if parent_old_id is not None and parent_old_id in skipped_ids:
+            skipped_ids.add(old_id)
+            continue
+
+        checklist_merge_key = backup_checklist_target.get(item["checklist_id"])
+        if checklist_merge_key is None:
+            skipped_ids.add(old_id)
+            continue
+
+        is_top_level = parent_old_id is None
+        if is_top_level and (checklist_merge_key, item["text"]) in existing_top_level_index:
+            skipped_ids.add(old_id)
+            continue
+
+        merge_key = ("backup", old_id)
+        backup_item_merge_key_by_id[old_id] = merge_key
+        entry = dict(item)
+        entry["_merge_key"] = merge_key
+        entry["_checklist_merge_key"] = checklist_merge_key
+        entry["_parent_merge_key"] = (
+            backup_item_merge_key_by_id.get(parent_old_id) if parent_old_id is not None else None
+        )
+        merged_items.append(entry)
+
+    return merged_checklists, merged_items
+
+
 def _populate_checklists(checklists):
     id_map = {}
     for checklist in checklists:
@@ -237,28 +399,20 @@ def _populate_checklists(checklists):
             user_id=checklist["user_id"],
             created_at=checklist.get("created_at"),
         )
-        id_map[checklist["id"]] = new_id
+        id_map[checklist["_merge_key"]] = new_id
     return id_map
 
 
 def _populate_checklist_items(items, checklist_id_map):
-    # get_all_items_flat() (the backup source, in backup_builder.py)
-    # orders by id ASC, and a sub-item's id is always created after
-    # its parent's -- so parent rows always appear before their
-    # children here, meaning item_id_map already has the parent's new
-    # id by the time a sub-item needs to look it up.
     item_id_map = {}
     for item in items:
-        new_checklist_id = checklist_id_map.get(item["checklist_id"])
+        new_checklist_id = checklist_id_map.get(item["_checklist_merge_key"])
         if new_checklist_id is None:
-            # The checklist this item belonged to wasn't restored --
-            # shouldn't normally happen, skip rather than create an
-            # orphaned item.
             continue
 
-        old_parent_id = item.get("parent_id")
+        parent_merge_key = item.get("_parent_merge_key")
         new_parent_id = (
-            item_id_map.get(old_parent_id) if old_parent_id is not None else None
+            item_id_map.get(parent_merge_key) if parent_merge_key is not None else None
         )
 
         new_id = create_checklist_item(
@@ -269,7 +423,7 @@ def _populate_checklist_items(items, checklist_id_map):
             created_at=item.get("created_at"),
             updated_at=item.get("updated_at"),
         )
-        item_id_map[item["id"]] = new_id
+        item_id_map[item["_merge_key"]] = new_id
 
 
 def restore_from_manifest(manifest):
@@ -283,6 +437,23 @@ def restore_from_manifest(manifest):
     """
     _validate_manifest(manifest)
     data = manifest["data"]
+
+    # Read from the LIVE database, BEFORE _temporary_database ever
+    # repoints db.get_db_path() at the new temp file -- this is what
+    # actually gets MERGED with the backup below (see
+    # _merge_calendar_events / _merge_checklists_and_items), instead
+    # of the full-replace semantics every other table here still uses.
+    existing_calendar_events = get_all_events(DEFAULT_USER_ID)
+    existing_checklists = get_all_checklists(DEFAULT_USER_ID)
+    existing_checklist_items = get_all_items_flat()
+
+    merged_calendar_events = _merge_calendar_events(
+        existing_calendar_events, data.get("calendar_events", [])
+    )
+    merged_checklists, merged_checklist_items = _merge_checklists_and_items(
+        existing_checklists, existing_checklist_items,
+        data.get("checklists", []), data.get("checklist_items", []),
+    )
 
     # Captured BEFORE _temporary_database ever runs, since that context
     # manager temporarily reassigns db.get_db_path -- this is the real,
@@ -316,11 +487,13 @@ def restore_from_manifest(manifest):
             note_id_map = _populate_notes(data.get("notes", []), category_id_map)
             task_id_map = _populate_tasks(data.get("tasks", []))
             _populate_reminders(data.get("reminders", []), task_id_map)
-            _populate_calendar_events(data.get("calendar_events", []))
+            # merged, not data.get("calendar_events", []) -- see above
+            _populate_calendar_events(merged_calendar_events)
             _populate_attachments(data.get("attachments", []), note_id_map)
             _populate_trash(data.get("trash", []), category_id_map)
-            checklist_id_map = _populate_checklists(data.get("checklists", []))
-            _populate_checklist_items(data.get("checklist_items", []), checklist_id_map)
+            # merged, not data.get("checklists"/"checklist_items", [])
+            checklist_id_map = _populate_checklists(merged_checklists)
+            _populate_checklist_items(merged_checklist_items, checklist_id_map)
 
         # Reached only if every step above completed without raising.
         os.replace(temp_path, target_db_path)
