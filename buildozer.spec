@@ -1,10 +1,10 @@
 [app]
 
 # (str) Title of your application
-title = NoteNest
+title = Log
 
 # (str) Package name
-package.name = notenest
+package.name = log
 
 # (str) Package domain (needed for android/ios packaging)
 # Reverse-DNS style; doesn't need to resolve to a real domain, it just
@@ -24,8 +24,11 @@ source.exclude_dirs = .buildozer,bin,.git,.vscode,__pycache__,tests
 # (list) List of exclusions using pattern matching
 # Dev-machine-only artifacts that must never end up bundled in the APK:
 # the local SQLite DB (a fresh one is created on first run on-device),
-# locally-picked note attachments/exports, and test scripts/fixtures.
-source.exclude_patterns = MyApp.db,theme_prefs.json,user_prefs.json,trash.json,note_attachments/*,exported_notes/*,test_*.py,test_backup.json,tempCodeRunnerFile.py
+# locally-picked note attachments/exports, test scripts/fixtures, the
+# device-local Terms & Conditions agreement record (shouldn't ship
+# pre-populated), and the temporary debug log (removed from the code,
+# excluded here defensively too).
+source.exclude_patterns = MyApp.db,theme_prefs.json,user_prefs.json,trash.json,note_attachments/*,exported_notes/*,test_*.py,test_backup.json,tempCodeRunnerFile.py,legal_prefs.json,backup_debug.log
 
 # (str) Application versioning
 version = 0.1
@@ -36,7 +39,7 @@ version = 0.1
 # via a bare GitHub zip URL (not kivymd==https://... -- that form makes
 # p4a write a broken requirements.txt that pip treats as a local path).
 # Keep the commit hash in sync with requirements.txt at the repo root.
-requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8ad4619ae942e3485a8f8f5eff295c4cb1db7.zip,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,materialshapes==0.3,plyer==2.1.0
+requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8ad4619ae942e3485a8f8f5eff295c4cb1db7.zip,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0
 
 # (str) Presplash of the application
 # TODO(design): add assets/presplash.png (recommended 2048x2048, will be
@@ -50,7 +53,7 @@ requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8
 # TODO(design): add assets/icon.png (512x512 recommended). Build works
 # without it -- p4a falls back to the default Kivy icon -- but this path
 # is where it goes once it exists. Keep commented until the file is present.
-#icon.filename = %(source.dir)s/assets/icon.png
+icon.filename = %(source.dir)s/assets/icon.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 # NoteNest's screens aren't built with a landscape layout, so lock to

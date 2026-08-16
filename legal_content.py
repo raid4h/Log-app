@@ -29,7 +29,7 @@ DEVELOPER_NAME = "NoteNestDev"
 
 TERMS_TEXT = f"""Terms & Conditions
 
-Last updated: [DATE -- fill in before release]
+Last updated: August 15, 2026
 
 Please read these Terms & Conditions carefully before using {APP_NAME}. By tapping "I Agree," you confirm that you have read, understood, and agree to be bound by these terms.
 
@@ -77,14 +77,14 @@ We may update these Terms & Conditions from time to time. If we make a material 
 
 10. Contact
 
-Questions about these terms can be directed to: [CONTACT EMAIL -- fill in before release]
+Questions about these terms can be directed to: notenest.299@gmail.com
 
 By tapping "I Agree" below, you confirm you have read and accepted these Terms & Conditions and the {APP_NAME} Privacy Policy.
 """
 
 PRIVACY_POLICY_TEXT = f"""Privacy Policy
 
-Last updated: [DATE -- fill in before release]
+Last updated: August 15, 2026
 
 This Privacy Policy explains how {APP_NAME}, developed by {DEVELOPER_NAME}, handles information. The short version: {APP_NAME} does not collect, store, or transmit any of your personal data anywhere, because it doesn't have to -- everything happens entirely on your own device.
 
@@ -124,5 +124,5 @@ If this Privacy Policy is ever updated, the "Last updated" date above will chang
 
 8. Contact
 
-Questions about this policy can be directed to: [CONTACT EMAIL -- fill in before release]
+Questions about this policy can be directed to: notenest.299@gmail.com
 """
