@@ -584,15 +584,29 @@
                     orientation: "vertical"
                     size_hint: 1, 1
 
-                    TextInput:
-                        id: content_field
-                        multiline: True
+                    ScrollView:
+                        id: content_scroll
                         size_hint: 1, 1
-                        font_size: "16sp"
-                        hint_text: "Once upon a note..."
-                        background_normal: ""
-                        background_active: ""
-                        padding: dp(8), dp(8), dp(8), dp(8)
+                        do_scroll_x: False
+                        bar_width: dp(3)
+
+                        TextInput:
+                            id: content_field
+                            multiline: True
+                            size_hint_x: 1
+                            size_hint_y: None
+                            # Fills the visible area when text is
+                            # short (looks identical to before), but
+                            # grows taller once text overflows it --
+                            # that's what makes real scrolling
+                            # possible, matching how Preview mode
+                            # already behaves.
+                            height: max(self.minimum_height, content_scroll.height)
+                            font_size: "16sp"
+                            hint_text: "Once upon a note..."
+                            background_normal: ""
+                            background_active: ""
+                            padding: dp(8), dp(8), dp(8), dp(8)
 
 
 <FormattingToolbar>:

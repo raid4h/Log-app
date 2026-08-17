@@ -132,6 +132,10 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
+        # Keeps the actively-typed line scrolled into view as the
+        # note grows taller than the visible area -- fills the gap
+        # left by Android not resizing the window for the keyboard.
+        self.ids.content_field.bind(cursor_pos=self._scroll_to_cursor)
 
 
     def _current_snapshot(self):
@@ -249,8 +253,8 @@ class NoteEditorScreen(
         container = self.ids.content_container
         if self._preview_scroll.parent is not None:
             container.remove_widget(self._preview_scroll)
-        if self.ids.content_field.parent is None:
-            container.add_widget(self.ids.content_field)
+        if self.ids.content_scroll.parent is None:
+            container.add_widget(self.ids.content_scroll)
 
     def show_preview_mode(self):
         raw = self.ids.content_field.text
@@ -290,8 +294,8 @@ class NoteEditorScreen(
 
 
         container = self.ids.content_container
-        if self.ids.content_field.parent is not None:
-            container.remove_widget(self.ids.content_field)
+        if self.ids.content_scroll.parent is not None:
+            container.remove_widget(self.ids.content_scroll)
         if self._preview_scroll.parent is None:
             container.add_widget(self._preview_scroll)
 
@@ -395,3 +399,18 @@ class NoteEditorScreen(
     def _refresh_preview_if_active(self):
         if self.is_preview:
             self.show_preview_mode()
+
+    def _scroll_to_cursor(self, field, cursor_pos):
+        scroll_view = self.ids.get("content_scroll")
+        if scroll_view is None or field.height <= scroll_view.height:
+            # Nothing to scroll -- the whole note already fits.
+            return
+
+        # cursor_pos[1] is the cursor's vertical position measured
+        # from the BOTTOM of the TextInput. A little padding keeps
+        # the cursor from sitting flush against the visible edge.
+        padding = dp(40)
+        scrollable_range = field.height - scroll_view.height
+        distance_from_top = field.height - cursor_pos[1]
+        target = 1 - max(0, min(1, (distance_from_top - padding) / scrollable_range))
+        scroll_view.scroll_y = max(0, min(1, target))
