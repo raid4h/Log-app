@@ -34,12 +34,14 @@ source.exclude_patterns = MyApp.db,theme_prefs.json,user_prefs.json,trash.json,n
 version = 0.1
 
 # (list) Application requirements
-# KivyMD has no stable 2.0 release on PyPI (this app relies on 2.0-only
-# APIs such as MDButton/MDButtonText), so it's pinned to an exact commit
-# via a bare GitHub zip URL (not kivymd==https://... -- that form makes
-# p4a write a broken requirements.txt that pip treats as a local path).
-# Keep the commit hash in sync with requirements.txt at the repo root.
-requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8ad4619ae942e3485a8f8f5eff295c4cb1db7.zip,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0
+# KivyMD 2.0.0 is a stable PyPI release and already includes the 2.0-only
+# APIs this app uses (MDButton/MDButtonText etc.), so pin the release
+# instead of a master-branch commit. Post-2.0.0 master introduced a
+# MaterialShapes feature that pulls in pycairo, which has no
+# python-for-android recipe and breaks Android builds entirely
+# (see kivymd/KivyMD#1842) -- pinning to 2.0.0 avoids that dependency.
+# Keep this in sync with requirements.txt at the repo root.
+requirements = python3,kivy==2.3.1,kivymd==2.0.0,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0
 
 # (str) Presplash of the application
 # TODO(design): add assets/presplash.png (recommended 2048x2048, will be
@@ -94,10 +96,10 @@ android.ndk = 25b
 android.build_tools = 35.0.0
 
 # (list) The Android archs to build for
-# Covers essentially all real devices in active use; drop armeabi-v7a
-# later if you want a smaller/faster build and don't need old-device
-# support for grading/demo.
-android.archs = arm64-v8a,armeabi-v7a
+# arm64-v8a only: covers all realistic test/grading devices (any phone
+# from the last ~7-8 years). Dropped armeabi-v7a (32-bit) to cut build
+# time roughly in half and reduce recipe-failure surface area.
+android.archs = arm64-v8a
 
 # (bool) enables Android auto backup feature (Android API >=23)
 android.allow_backup = True
