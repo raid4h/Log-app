@@ -16,6 +16,7 @@ from kivy.uix.image import Image
 from kivy.uix.label import Label
 from kivy.properties import BooleanProperty
 from kivymd.uix.screen import MDScreen
+from kivy.properties import NumericProperty
 from kivy.core.window import Window
 from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 -- registers the widget class with KV before app.kv loads it, same fix as the earlier DashboardTile "Unknown class" issue
 
@@ -60,6 +61,7 @@ class NoteEditorScreen(
     is_preview = False
     show_search = BooleanProperty(False)
     is_compact = BooleanProperty(False)
+    keyboard_height = NumericProperty(0)
 
     # NOTE: every key below was checked against the actual ids in
     # app.kv's <NoteEditorScreen>: rule. header_bar/title_bar/
@@ -132,10 +134,12 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
-        # Keeps the actively-typed line scrolled into view as the
-        # note grows taller than the visible area -- fills the gap
-        # left by Android not resizing the window for the keyboard.
+        # Tracks the keyboard's real height directly from Android --
+        # drives both the guaranteed scroll-room spacer above (KV)
+        # and the auto-follow-cursor logic below.
+        Window.bind(keyboard_height=self.setter("keyboard_height"))
         self.ids.content_field.bind(cursor_pos=self._scroll_to_cursor)
+        self.bind(keyboard_height=self._scroll_to_cursor)
 
 
     def _current_snapshot(self):
@@ -400,17 +404,30 @@ class NoteEditorScreen(
         if self.is_preview:
             self.show_preview_mode()
 
-    def _scroll_to_cursor(self, field, cursor_pos):
+    def _scroll_to_cursor(self, *args):
+        # Runs one frame later, after the height changes above have
+        # actually taken effect -- reading positions in the same
+        # frame as a layout change can use stale numbers.
+        Clock.schedule_once(self._do_scroll_to_cursor, 0)
+
+    def _do_scroll_to_cursor(self, dt):
         scroll_view = self.ids.get("content_scroll")
-        if scroll_view is None or field.height <= scroll_view.height:
-            # Nothing to scroll -- the whole note already fits.
+        field = self.ids.get("content_field")
+        if scroll_view is None or field is None:
             return
 
-        # cursor_pos[1] is the cursor's vertical position measured
-        # from the BOTTOM of the TextInput. A little padding keeps
-        # the cursor from sitting flush against the visible edge.
-        padding = dp(40)
-        scrollable_range = field.height - scroll_view.height
-        distance_from_top = field.height - cursor_pos[1]
-        target = 1 - max(0, min(1, (distance_from_top - padding) / scrollable_range))
-        scroll_view.scroll_y = max(0, min(1, target))
+        # Converts the cursor's position to real, absolute screen
+        # pixels -- more reliable than the previous approach, which
+        # estimated position using percentages of the field's total
+        # height instead of actual on-screen coordinates.
+        _, cursor_window_y = field.to_window(*field.cursor_pos)
+
+        # The visible (non-keyboard-covered) area starts just above
+        # the keyboard's top edge.
+        visible_bottom = self.keyboard_height + dp(20)
+
+        if cursor_window_y >= visible_bottom:
+            return  # Cursor is already visible -- nothing to do.
+
+        shortfall = visible_bottom - cursor_window_y
+        scroll_view.scroll_y = max(0, scroll_view.scroll_y - shortfall / max(scroll_view.height, 1))
