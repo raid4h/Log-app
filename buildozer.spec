@@ -1,10 +1,10 @@
 [app]
 
 # (str) Title of your application
-title = NoteNest
+title = Log
 
 # (str) Package name
-package.name = notenest
+package.name = log
 
 # (str) Package domain (needed for android/ios packaging)
 # Reverse-DNS style; doesn't need to resolve to a real domain, it just
@@ -24,19 +24,24 @@ source.exclude_dirs = .buildozer,bin,.git,.vscode,__pycache__,tests
 # (list) List of exclusions using pattern matching
 # Dev-machine-only artifacts that must never end up bundled in the APK:
 # the local SQLite DB (a fresh one is created on first run on-device),
-# locally-picked note attachments/exports, and test scripts/fixtures.
-source.exclude_patterns = MyApp.db,theme_prefs.json,user_prefs.json,trash.json,note_attachments/*,exported_notes/*,test_*.py,test_backup.json,tempCodeRunnerFile.py
+# locally-picked note attachments/exports, test scripts/fixtures, the
+# device-local Terms & Conditions agreement record (shouldn't ship
+# pre-populated), and the temporary debug log (removed from the code,
+# excluded here defensively too).
+source.exclude_patterns = MyApp.db,theme_prefs.json,user_prefs.json,trash.json,note_attachments/*,exported_notes/*,test_*.py,test_backup.json,tempCodeRunnerFile.py,legal_prefs.json,backup_debug.log
 
 # (str) Application versioning
 version = 0.1
 
 # (list) Application requirements
-# KivyMD has no stable 2.0 release on PyPI (this app relies on 2.0-only
-# APIs such as MDButton/MDButtonText), so it's pinned to an exact commit
-# via a bare GitHub zip URL (not kivymd==https://... -- that form makes
-# p4a write a broken requirements.txt that pip treats as a local path).
-# Keep the commit hash in sync with requirements.txt at the repo root.
-requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8ad4619ae942e3485a8f8f5eff295c4cb1db7.zip,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,materialshapes==0.3,plyer==2.1.0
+# KivyMD 2.0.0 is a stable PyPI release and already includes the 2.0-only
+# APIs this app uses (MDButton/MDButtonText etc.), so pin the release
+# instead of a master-branch commit. Post-2.0.0 master introduced a
+# MaterialShapes feature that pulls in pycairo, which has no
+# python-for-android recipe and breaks Android builds entirely
+# (see kivymd/KivyMD#1842) -- pinning to 2.0.0 avoids that dependency.
+# Keep this in sync with requirements.txt at the repo root.
+requirements = python3,kivy==2.3.1,kivymd==2.0.0,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0
 
 # (str) Presplash of the application
 # TODO(design): add assets/presplash.png (recommended 2048x2048, will be
@@ -50,7 +55,7 @@ requirements = python3,kivy==2.3.1,https://github.com/kivymd/KivyMD/archive/dbe8
 # TODO(design): add assets/icon.png (512x512 recommended). Build works
 # without it -- p4a falls back to the default Kivy icon -- but this path
 # is where it goes once it exists. Keep commented until the file is present.
-#icon.filename = %(source.dir)s/assets/icon.png
+icon.filename = %(source.dir)s/assets/icon.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 # NoteNest's screens aren't built with a landscape layout, so lock to
@@ -91,10 +96,10 @@ android.ndk = 25b
 android.build_tools = 35.0.0
 
 # (list) The Android archs to build for
-# Covers essentially all real devices in active use; drop armeabi-v7a
-# later if you want a smaller/faster build and don't need old-device
-# support for grading/demo.
-android.archs = arm64-v8a,armeabi-v7a
+# arm64-v8a only: covers all realistic test/grading devices (any phone
+# from the last ~7-8 years). Dropped armeabi-v7a (32-bit) to cut build
+# time roughly in half and reduce recipe-failure surface area.
+android.archs = arm64-v8a
 
 # (bool) enables Android auto backup feature (Android API >=23)
 android.allow_backup = True

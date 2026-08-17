@@ -1,50 +1,70 @@
 from database.db import get_connection
 from datetime import datetime
 from database.calendar_queries import get_next_calendar_event
-
+from database.calendar_queries import get_events_by_date
+from services.checklist_store import get_all_checklists, get_items_by_checklist
 
 def get_today_tasks(user_id, today_date):
-    """
-    Powers the Home screen 'Today's Plan' list.
-    today_date should be a string 'YYYY-MM-DD' -- matched against the
-    date portion of due_date (which now stores 'YYYY-MM-DD HH:MM').
-    Only shows unfinished tasks/events -- completed ones drop off Home
-    once checked off (they're still visible on the Calendar screen).
-    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT
-            tasks.id, tasks.title, tasks.priority, tasks.is_completed,
-            tasks.due_date, tasks.activity_type, tasks.category_id,
-            categories.name, categories.color,
-            (SELECT COUNT(*) FROM notes WHERE notes.task_id = tasks.id) as note_count,
-            (SELECT COUNT(*) FROM pomodoro_sessions
-                WHERE pomodoro_sessions.task_id = tasks.id AND completed=1) as pomodoro_completed
-        FROM tasks
-        LEFT JOIN categories ON tasks.category_id = categories.id
-        WHERE tasks.user_id=? AND tasks.due_date LIKE ? AND tasks.is_completed=0
-        ORDER BY tasks.due_date ASC
+    SELECT
+        tasks.id, tasks.title, tasks.priority, tasks.is_completed,
+        tasks.due_date, tasks.activity_type, tasks.category_id,
+        categories.name, categories.color,
+        (SELECT COUNT(*) FROM notes WHERE notes.task_id = tasks.id) as note_count,
+        (SELECT COUNT(*) FROM pomodoro_sessions
+            WHERE pomodoro_sessions.task_id = tasks.id AND completed=1) as pomodoro_completed
+    FROM tasks
+    LEFT JOIN categories ON tasks.category_id = categories.id
+    WHERE tasks.user_id=? AND tasks.due_date LIKE ?
+    ORDER BY tasks.due_date DESC
     ''', (user_id, f"{today_date}%"))
-
     rows = cursor.fetchall()
     conn.close()
 
     tasks = []
     for r in rows:
         tasks.append({
-            "id": r[0],
-            "title": r[1],
-            "priority": r[2],
-            "is_completed": r[3],
-            "due_date": r[4],
-            "activity_type": r[5],
-            "category_id": r[6],
-            "category_name": r[7],
-            "category_color": r[8],
-            "note_count": r[9],
-            "pomodoro_completed": r[10],
+            "id": r[0], "title": r[1], "priority": r[2], "is_completed": r[3],
+            "due_date": r[4], "activity_type": r[5], "category_id": r[6],
+            "category_name": r[7], "category_color": r[8],
+            "note_count": r[9], "pomodoro_completed": r[10],
         })
+
+    # -- calendar events due today --
+    for event in get_events_by_date(today_date, user_id):
+        if event.get("completed"):
+            continue
+        tasks.append({
+            "id": f"cal-{event['id']}",
+            "title": event.get("title", ""),
+            "priority": None, "is_completed": 0,
+            "due_date": f"{today_date} {event.get('event_time') or ''}".strip(),
+            "activity_type": "event",
+            "category_id": None, "category_name": None, "category_color": None,
+            "note_count": 0, "pomodoro_completed": 0,
+        })
+
+    # -- checklist items added today (unchecked, top-level only) --
+    for checklist in get_all_checklists(user_id):
+        for item in get_items_by_checklist(checklist["id"]):
+            if item["checked"]:
+                continue
+            if not (item.get("created_at") or "").startswith(today_date):
+                continue
+            tasks.append({
+                "id": f"chk-{item['id']}",
+                "title": item["text"],
+                "priority": None, "is_completed": 0,
+                "due_date": item["created_at"],
+                "activity_type": "checklist_item",
+                "category_id": None, "category_name": None, "category_color": None,
+                "note_count": 0, "pomodoro_completed": 0,
+                "_checklist_id": checklist["id"],  # needed so tapping the row can open the right checklist
+            })
+
+    tasks.sort(key=lambda t: t["due_date"] or "")
     return tasks
 
 
@@ -214,3 +234,22 @@ def create_study_task(user_id, title, duration):
     conn.close()
 
     return task_id
+
+def get_today_focus_count(user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pomodoro_sessions
+        JOIN tasks ON pomodoro_sessions.task_id = tasks.id
+        WHERE tasks.user_id = ?
+          AND date(pomodoro_sessions.started_at) = ?
+    """, (user_id, today))
+
+    count = cursor.fetchone()[0]
+
+    conn.close()
+    return count

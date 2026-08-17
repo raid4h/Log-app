@@ -123,3 +123,21 @@ def get_notes_by_task(task_id):
     notes=cursor.fetchall()
     conn.close()
     return notes
+
+def get_today_notes_count():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM notes
+        WHERE date(created_at) = ?
+          AND is_archived = 0
+    """, (today,))
+
+    count = cursor.fetchone()[0]
+
+    conn.close()
+    return count

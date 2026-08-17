@@ -186,13 +186,15 @@ class ChecklistItem(BoxLayout):
             padding=[_MAIN_ROW_PADDING_LEFT, 0, dp(12), 0],
         )
 
-        self.expand_btn = MDIconButton(
+        self.expand_btn = _TappableIcon(
             icon="chevron-right",
             theme_icon_color="Custom",
             icon_color=theme_rgba(TEXT_SECONDARY),
             size_hint=(None, None),
             size=(_EXPAND_BTN_WIDTH, _EXPAND_BTN_WIDTH),
             pos_hint={"center_y": 0.5},
+            halign="center",
+            valign="middle",
         )
         self.expand_btn.bind(
             on_release=lambda *_a: setattr(self, "expanded", not self.expanded)

@@ -4,6 +4,8 @@ from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.anchorlayout import MDAnchorLayout
 from kivymd.uix.button import MDIconButton
+from kivymd.uix.label import MDLabel
+from kivymd.uix.card import MDCard
 from kivy.metrics import dp
 from screens.home_screen import HomeScreen
 from screens.notes_screen import NotesScreen
@@ -32,8 +34,8 @@ from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 # keyboard, instead of the keyboard covering it. Does nothing on
 # desktop (there's no real on-screen keyboard here to trigger it) --
 # this only takes effect once running on an actual Android device or
-# emulator.
-Window.softinput_mode = "below_target"
+# emulator.Window.softinput_mode = "below_target"
+Window.softinput_mode = 'resize'
 
 
 class RootLayout(MDBoxLayout):
@@ -125,6 +127,8 @@ class NoteNestApp(MDApp):
 
     def _on_screen_changed(self, instance, value):
         self._update_nav_visibility(value)
+        if hasattr(self.nav_bar, "update_active_item"):
+            self.nav_bar.update_active_item(value)
 
     def _update_nav_visibility(self, screen_name):
         is_gated_screen = screen_name == "terms"
@@ -142,7 +146,7 @@ class NoteNestApp(MDApp):
             self.nav_bar.opacity = 0
             self.nav_bar.disabled = True
         else:
-            self.nav_bar.height = dp(64)
+            self.nav_bar.height = dp(72)
             self.nav_bar.opacity = 1
             self.nav_bar.disabled = False
 
@@ -150,40 +154,180 @@ class NoteNestApp(MDApp):
         nav = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=dp(64),
-            padding=dp(8),
+            height=dp(72),
+            padding=(dp(8), dp(5), dp(8), dp(5)),
             spacing=dp(4),
             theme_bg_color="Custom",
             md_bg_color=theme_manager.get_color(CARD_PRIMARY),
         )
 
-        icon_buttons = []
+        nav_items = []
 
-        def make_nav_button(icon, screen_name):
-            wrapper = MDAnchorLayout(size_hint_x=1, anchor_x="center", anchor_y="center")
+        def make_nav_button(icon, label, screen_name):
+            # ---------------------------------------------------------
+            # Individual navigation item
+            # ---------------------------------------------------------
+            item = MDBoxLayout(
+                orientation="vertical",
+                size_hint_x=1,
+                spacing=dp(1),
+                padding=(dp(2), 0, dp(2), 0),
+            )
+
+            # ---------------------------------------------------------
+            # Icon
+            # ---------------------------------------------------------
+            icon_box = MDAnchorLayout(
+                size_hint_y=None,
+                height=dp(38),
+                anchor_x="center",
+                anchor_y="center",
+            )
+
             btn = MDIconButton(
                 icon=icon,
                 theme_icon_color="Custom",
                 icon_color=theme_manager.get_color(TEXT_PRIMARY),
-                on_release=lambda x: setattr(self.sm, "current", screen_name),
+                size_hint=(None, None),
+                size=(dp(42), dp(38)),
+                on_release=lambda x: setattr(
+                    self.sm,
+                    "current",
+                    screen_name
+                ),
             )
-            icon_buttons.append(btn)
-            wrapper.add_widget(btn)
-            return wrapper
 
-        nav.add_widget(make_nav_button("home-outline", "home"))
-        nav.add_widget(make_nav_button("calendar-outline", "calendar"))
-        nav.add_widget(make_nav_button("notebook-outline", "notes"))
-        nav.add_widget(make_nav_button("timer-sand", "timer"))
+            icon_box.add_widget(btn)
 
+            # ---------------------------------------------------------
+            # Label
+            # ---------------------------------------------------------
+            text = MDLabel(
+                text=label,
+                halign="center",
+                valign="middle",
+                font_style="Label",
+                role="small",
+                bold=False,
+                theme_text_color="Custom",
+                text_color=theme_manager.get_color(TEXT_PRIMARY),
+                size_hint_y=None,
+                height=dp(17),
+            )
+
+            # ---------------------------------------------------------
+            # Active indicator
+            # ---------------------------------------------------------
+            indicator = MDCard(
+                size_hint=(None, None),
+                size=(dp(24), dp(3)),
+                pos_hint={"center_x": 0.5},
+                radius=[dp(2)],
+                elevation=0,
+                theme_bg_color="Custom",
+                md_bg_color=theme_manager.get_color(TEXT_PRIMARY),
+                opacity=0,
+            )
+
+            indicator_box = MDAnchorLayout(
+                size_hint_y=None,
+                height=dp(4),
+                anchor_x="center",
+                anchor_y="center",
+            )
+
+            indicator_box.add_widget(indicator)
+
+            item.add_widget(icon_box)
+            item.add_widget(text)
+            item.add_widget(indicator_box)
+
+            nav_items.append({
+                "screen": screen_name,
+                "button": btn,
+                "label": text,
+                "indicator": indicator,
+            })
+
+            return item
+
+        nav.add_widget(
+            make_nav_button(
+                "home-outline",
+                "Home",
+                "home"
+            )
+        )
+
+        nav.add_widget(
+            make_nav_button(
+                "calendar-outline",
+                "Calendar",
+                "calendar"
+            )
+        )
+
+        nav.add_widget(
+            make_nav_button(
+                "notebook-outline",
+                "Notes",
+                "notes"
+            )
+        )
+
+        nav.add_widget(
+            make_nav_button(
+                "timer-sand",
+                "Timer",
+                "timer"
+            )
+        )
+
+        # -------------------------------------------------------------
+        # Update selected navigation item
+        # -------------------------------------------------------------
+        def update_active_item(screen_name):
+            accent = theme_manager.get_color(TEXT_PRIMARY)
+            secondary = theme_manager.get_color(CARD_PRIMARY)
+
+            # We use the theme's text color for the active state.
+            active_color = theme_manager.get_color(TEXT_PRIMARY)
+            inactive_color = theme_manager.get_color(TEXT_PRIMARY)
+
+            for item in nav_items:
+                is_active = item["screen"] == screen_name
+
+                if is_active:
+                    item["button"].icon_color = active_color
+                    item["label"].text_color = active_color
+                    item["label"].bold = True
+                    item["indicator"].md_bg_color = active_color
+                    item["indicator"].opacity = 1
+                else:
+                    item["button"].icon_color = inactive_color
+                    item["label"].text_color = inactive_color
+                    item["label"].bold = False
+                    item["indicator"].opacity = 0
+
+        # Store this so _on_screen_changed can use it.
+        nav.update_active_item = update_active_item
+
+        # Apply the initial state.
+        update_active_item(self.sm.current)
+
+        # -------------------------------------------------------------
+        # Theme updates
+        # -------------------------------------------------------------
         def refresh_nav_theme(*_args):
             nav.md_bg_color = theme_manager.get_color(CARD_PRIMARY)
-            for btn in icon_buttons:
-                btn.icon_color = theme_manager.get_color(TEXT_PRIMARY)
+
+            update_active_item(self.sm.current)
 
         theme_manager.bind(theme_name=refresh_nav_theme)
 
         return nav
+        
+        
 
 
 if __name__ == "__main__":

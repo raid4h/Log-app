@@ -313,3 +313,16 @@ def get_next_calendar_event(user_id):
     row = cursor.fetchone()
     conn.close()
     return _row_to_dict(row) if row else None
+
+def get_today_calendar_events(user_id, today_date):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, title, event_date, event_time
+        FROM calendar_events
+        WHERE user_id=? AND event_date=?
+        ORDER BY event_time ASC
+    ''', (user_id, today_date))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows

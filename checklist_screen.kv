@@ -17,8 +17,8 @@
 
     MDBoxLayout:
         orientation: "vertical"
-        padding: dp(20)
-        spacing: dp(16)
+        padding: dp(20), dp(28), dp(20), dp(20)     
+        spacing: dp(20) 
 
         # top bar: back + title/subtitle
         MDBoxLayout:
@@ -41,7 +41,8 @@
                     text: "Checklists"
                     theme_text_color: "Custom"
                     font_style: "Title"
-                    role: "medium"
+                    role: "large"       
+                    bold: True
 
                 MDLabel:
                     id: subtitle_label

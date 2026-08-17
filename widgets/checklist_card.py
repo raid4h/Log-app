@@ -24,6 +24,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.utils import get_color_from_hex
+from kivy.uix.anchorlayout import AnchorLayout
 
 from kivymd.uix.button import MDIconButton
 
@@ -109,6 +110,11 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
         # (via its AnchorLayout) -- guarantees both land on the exact
         # same row instead of two different "centered" calculations
         # potentially disagreeing by a few pixels.
+
+        top_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(34), spacing=dp(8))
+
+        # TITLE — now wrapped in an AnchorLayout, same mechanism as delete button
+        title_anchor = AnchorLayout(size_hint=(1, 1), anchor_x="left", anchor_y="center")
         self.title_label = Label(
             text=self.title,
             font_size=sp(16),
@@ -117,20 +123,21 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
             valign="middle",
             size_hint=(1, None),
             height=dp(24),
-            pos_hint={"center_y": 0.5},
             shorten=True,
             shorten_from="right",
         )
         self.title_label.bind(size=self.title_label.setter("text_size"))
-        top_row.add_widget(self.title_label)
+        title_anchor.add_widget(self.title_label)
+        top_row.add_widget(title_anchor)
 
-        from kivy.uix.anchorlayout import AnchorLayout
-        delete_anchor = AnchorLayout(size_hint=(None, 1), width=dp(32), anchor_x="center", anchor_y="center")
+        # DELETE — wider anchor box so the button's real touch-target can't spill outside it
+        delete_anchor = AnchorLayout(size_hint=(None, None), size=(dp(40), dp(34)), anchor_x="right", anchor_y="center")
         self.delete_btn = MDIconButton(
             icon="trash-can-outline",
             theme_icon_color="Custom",
+            style="standard",
             size_hint=(None, None),
-            size=(dp(28), dp(28)),
+            size=(dp(32), dp(32)),
         )
         self.delete_btn.bind(on_release=lambda *_a: self._request_delete())
         delete_anchor.add_widget(self.delete_btn)

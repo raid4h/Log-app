@@ -141,6 +141,7 @@
         MDBoxLayout:
             orientation: "vertical"
             size_hint: 1, 1
+            padding: 0, dp(20), 0, 0 
 
             MDBoxLayout:
                 id: top_bar
@@ -172,6 +173,7 @@
                         text: "Notes"
                         font_style: "Title"
                         role: "large"
+                        bold: True 
                         theme_text_color: "Custom"
                         halign: "left"
                         valign: "bottom"
@@ -220,8 +222,8 @@
             MDBoxLayout:
                 id: search_bar
                 size_hint_y: None
-                height: "52dp"
-                padding: "16dp", "6dp"
+                height: "60dp"                            
+                padding: "16dp", "10dp"
 
                 MDCard:
                     orientation: "horizontal"
