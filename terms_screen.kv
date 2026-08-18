@@ -1,10 +1,18 @@
 # terms_screen.kv
 # Full-screen scrollable Terms & Conditions + checkbox + Agree/Decline.
 # No back button -- this screen is a gate, not a normal navigable screen.
+#
+# root_layout has an explicit id so terms_screen.py can pad its
+# bottom at runtime by the real Android gesture-nav-bar height (see
+# theme/safe_area.py) -- otherwise Decline/I Agree can render
+# partially or fully under the system gesture bar on Android 15+
+# devices, where taps in that zone get consumed by the OS's
+# back-swipe gesture instead of reaching the button.
 
 <TermsScreen>:
 
     MDBoxLayout:
+        id: root_layout
         orientation: "vertical"
         padding: dp(20)
         spacing: dp(14)

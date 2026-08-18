@@ -5,12 +5,35 @@
 # picker -- no Google account, no network, involved at all. This is
 # deliberately thin: almost everything it does is already implemented
 # by the two services it calls.
+#
+# NOTE on platform split for export:
+# plyer's filechooser.save_file() has two genuinely different
+# contracts depending on platform:
+#   - Desktop/iOS: the callback kwarg is "on_selection" and it is
+#     handed a list of chosen file paths, same shape as open_file().
+#   - Android: the callback kwarg is "callback" (NOT "on_selection")
+#     and it is handed an already-open java.io.FileOutputStream --
+#     there is no path at all, because Android's Storage Access
+#     Framework never exposes one to the app. You write bytes
+#     directly into that stream instead of calling
+#     save_manifest_to_path().
+# Using the wrong kwarg name on Android causes plyer's
+# AndroidFileChooser._save_file() to raise KeyError('callback')
+# before the native picker even opens -- which is exactly the bug
+# this file used to have.
 
+import json
 import os
+
+from kivy.utils import platform
 
 from plyer import filechooser
 
-from services.backup_builder import build_backup_manifest, save_manifest_to_path
+from services.backup_builder import (
+    build_backup_manifest,
+    save_manifest_to_path,
+    manifest_to_json_bytes,
+)
 from services.restore_engine import restore_from_path, RestoreError
 
 
@@ -25,9 +48,15 @@ class ImportCancelled(Exception):
 def export_backup_to_file(on_success, on_error):
     """
     Opens a native "Save As" dialog, and on confirmation, builds a
-    fresh backup manifest and writes it to the chosen path.
+    fresh backup manifest and writes it to the chosen location.
 
     on_success(file_path) is called after a successful export.
+    NOTE: on Android, file_path will always be None -- the Storage
+    Access Framework never hands the app a real path, only a write
+    stream. Callers displaying a success message should handle a
+    None path gracefully (e.g. "Backup exported successfully" with
+    no path shown) rather than assuming one is always present.
+
     on_error(exception) is called if anything goes wrong, including
     the user cancelling the dialog (ExportCancelled).
 
@@ -36,6 +65,13 @@ def export_backup_to_file(on_success, on_error):
     a native OS dialog and reports back whenever the user finishes
     interacting with it, which may not be immediately.
     """
+    if platform == "android":
+        _export_backup_android(on_success, on_error)
+    else:
+        _export_backup_desktop(on_success, on_error)
+
+
+def _export_backup_desktop(on_success, on_error):
     cwd_before_picker = os.getcwd()
 
     def handle_selection(selection):
@@ -65,6 +101,29 @@ def export_backup_to_file(on_success, on_error):
     )
 
 
+def _export_backup_android(on_success, on_error):
+    def handle_save_stream(java_file_output_stream):
+        try:
+            manifest = build_backup_manifest()
+            data = manifest_to_json_bytes(manifest)
+            java_file_output_stream.write(data)
+            java_file_output_stream.flush()
+        except Exception as exc:
+            on_error(exc)
+            return
+
+        # Android's SAF save flow never gives the app a usable path
+        # or URI back -- only the write stream. Callers must not rely
+        # on this being a real path.
+        on_success(None)
+
+    filechooser.save_file(
+        callback=handle_save_stream,
+        filters=[["NoteNest Backup", "*.json"]],
+        title="Export NoteNest Backup",
+    )
+
+
 def import_backup_from_file(on_success, on_error):
     """
     Opens a native "Open File" dialog, and on confirmation, restores
@@ -76,6 +135,11 @@ def import_backup_from_file(on_success, on_error):
     from a newer app version (RestoreError, raised by restore_engine),
     or any other failure. In every error case, per restore_engine's
     own guarantee, the live database is left untouched.
+
+    NOTE: unlike save_file(), plyer's open_file() has the SAME
+    contract on every platform including Android -- "on_selection"
+    kwarg, handed a list of real file paths. No platform split is
+    needed here.
     """
     cwd_before_picker = os.getcwd()
 

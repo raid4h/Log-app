@@ -212,14 +212,30 @@ def build_backup_manifest():
     }
 
 
+def manifest_to_json_bytes(manifest):
+    """
+    Serializes a manifest to UTF-8 JSON bytes using the exact same
+    json.dumps() settings as save_manifest_to_path() below, so that a
+    manifest written via a file path (desktop) and one written via a
+    raw byte stream (Android's SAF FileOutputStream) are byte-for-byte
+    identical. Any caller that needs manifest bytes without a
+    filesystem path -- e.g. writing into an already-open stream --
+    should go through this function rather than reimplementing the
+    json.dumps() call, so the two paths can never quietly drift apart
+    in formatting.
+    """
+    text = json.dumps(manifest, indent=2)
+    return text.encode("utf-8")
+
+
 def save_manifest_to_path(manifest, file_path):
     """
     Writes a manifest dictionary to disk as a JSON file. Kept separate
     from build_backup_manifest() so callers (manual export, Drive
     upload) can build once and choose where it goes.
     """
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2)
+    with open(file_path, "wb") as f:
+        f.write(manifest_to_json_bytes(manifest))
 
 
 def verify_manifest_checksum(manifest):

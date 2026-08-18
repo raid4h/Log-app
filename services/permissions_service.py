@@ -28,7 +28,7 @@ PERMISSION_DEFINITIONS = [
     {
         "key": "notifications",
         "label": "Notifications",
-        "description": "Lets NoteNest alert you when a task or reminder is due.",
+        "description": "Lets Log alert you when a task or reminder is due.",
     },
     {
         "key": "read_media_images",
@@ -141,6 +141,14 @@ def open_app_settings():
     to grant a permission the user has permanently denied (checked
     "don't ask again"), since request_permission() silently does
     nothing once that's happened. No-op on non-Android platforms.
+
+    Raises the underlying exception on failure rather than swallowing
+    it -- the caller (privacy_settings_screen.py) is responsible for
+    catching it and showing something visible instead of a hard
+    crash. This used to crash with no visible cause; letting the
+    exception surface here (instead of dying inside a bare pyjnius
+    call with nothing catching it) means the caller can now show the
+    real error text on-device tonight.
     """
     if not is_android():
         return
@@ -158,4 +166,9 @@ def open_app_settings():
     intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
     uri = Uri.fromParts("package", package_name, None)
     intent.setData(uri)
+    # FLAG_ACTIVITY_NEW_TASK is defensive: some p4a bootstraps/OEM
+    # skins are inconsistent about whether mActivity's own context is
+    # enough to start an Activity from here without it, and this
+    # flag is harmless to set even when it isn't strictly required.
+    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     current_activity.startActivity(intent)

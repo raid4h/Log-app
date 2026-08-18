@@ -1,7 +1,7 @@
 # screens/privacy_settings_screen.py
 #
 # Settings > Privacy. Shows the app's own actual runtime permission
-# state (via services/permissions_service.py) -- what NoteNest can
+# state (via services/permissions_service.py) -- what Log can
 # currently access on this device, and why each permission exists.
 # Purely local: no network calls, nothing sent anywhere.
 #
@@ -15,10 +15,12 @@
 # permissions_service.py) -- shown as an informational note instead
 # of a broken/empty permissions list.
 
+from kivy.clock import Clock
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
 from kivymd.uix.button import MDButton, MDButtonText
+from kivymd.uix.snackbar import MDSnackbar, MDSnackbarText
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.metrics import dp
@@ -48,6 +50,15 @@ STATUS_DISPLAY = {
     "not_applicable": ("Not applicable", "#9A9A9A"),
 }
 
+# Cap for the width-not-resolved-yet retry loop in _schedule_load.
+# At 60 frames (roughly 1 second at 60fps) this is generous -- if the
+# layout genuinely hasn't resolved a real width by then, something
+# else is wrong and retrying forever just leaves a permanently blank
+# screen with no visible signal. Load anyway past this point rather
+# than loop silently -- cards may render a frame or two narrower than
+# ideal, which is a far smaller problem than never rendering at all.
+_MAX_WIDTH_RETRIES = 60
+
 
 class PrivacySettingsScreen(ThemedScreenMixin, MDScreen):
 
@@ -59,31 +70,83 @@ class PrivacySettingsScreen(ThemedScreenMixin, MDScreen):
         "desktop_note_label": ("text_color", TEXT_SECONDARY),
     }
 
-    def on_pre_enter(self, *args):
+    def on_enter(self, *args):
+        # Fires after the screen transition has actually finished and
+        # the screen is on-display -- unlike on_pre_enter, which fires
+        # *before* the transition even starts. That distinction
+        # matters here: permission_list's parent layout may not have
+        # resolved a real width until the transition completes.
+        # Building the MDCards while width is still 0 makes KivyMD's
+        # ripple effect try to allocate a 0-sized FBO texture ->
+        # "FBO Initialization failed: Incomplete attachment (36054)"
+        # on some Android GPUs.
+        #
+        # on_enter alone isn't a hard guarantee either (custom
+        # transitions, first-ever layout pass, etc. can still leave
+        # width at 0 for a frame or two), so this also retries once
+        # per frame until permission_list actually has a real width
+        # -- capped at _MAX_WIDTH_RETRIES so a layout that never
+        # resolves doesn't leave the screen silently blank forever.
+        self._width_retry_count = 0
+        self._schedule_load()
+
+    def _schedule_load(self, *args):
+        permission_list = self.ids.permission_list
+        if permission_list.width <= 0 and self._width_retry_count < _MAX_WIDTH_RETRIES:
+            self._width_retry_count += 1
+            Clock.schedule_once(self._schedule_load, 0)
+            return
         self.load_permissions()
 
     def go_back(self):
         App.get_running_app().root.current = "settings"
 
+    def _show_snackbar(self, message):
+        MDSnackbar(
+            MDSnackbarText(text=message),
+            y="24dp",
+            pos_hint={"center_x": 0.5},
+            size_hint_x=0.9,
+        ).open()
+
     # ── loading the permission list ──
 
     def load_permissions(self):
-        self.ids.permission_list.clear_widgets()
+        try:
+            self.ids.permission_list.clear_widgets()
 
-        if not is_android():
-            self.ids.desktop_note_label.text = (
-                "Permissions only apply when NoteNest is running on an "
-                "Android device -- there's nothing to manage here on "
-                "desktop."
-            )
-            self.ids.desktop_note_label.height = dp(40)
-        else:
-            self.ids.desktop_note_label.text = ""
-            self.ids.desktop_note_label.height = 0
+            if not is_android():
+                self.ids.desktop_note_label.text = (
+                    "Permissions only apply when NoteNest is running on an "
+                    "Android device -- there's nothing to manage here on "
+                    "desktop."
+                )
+                self.ids.desktop_note_label.height = dp(40)
+            else:
+                self.ids.desktop_note_label.text = ""
+                self.ids.desktop_note_label.height = 0
 
-        statuses = get_permission_statuses()
-        for permission in statuses:
-            self.ids.permission_list.add_widget(self._build_permission_card(permission))
+            statuses = get_permission_statuses()
+            for permission in statuses:
+                try:
+                    self.ids.permission_list.add_widget(
+                        self._build_permission_card(permission)
+                    )
+                except Exception as exc:
+                    # One malformed/unexpected permission entry
+                    # shouldn't blank out every other card -- skip it
+                    # and keep going, instead of the whole list dying
+                    # partway through (which previously looked
+                    # identical to nothing loading at all).
+                    print(f"[privacy_settings] failed to build card for "
+                          f"{permission.get('key')}: {exc}")
+        except Exception as exc:
+            # If something upstream of the per-card loop fails (e.g.
+            # get_permission_statuses() itself), show that clearly
+            # instead of leaving a blank list with only the static
+            # "Open App Settings" button visible and no explanation.
+            print(f"[privacy_settings] load_permissions failed: {exc}")
+            self._show_snackbar(f"Couldn't load permissions: {exc}")
 
     def _build_permission_card(self, permission):
         card = MDCard(
@@ -153,4 +216,14 @@ class PrivacySettingsScreen(ThemedScreenMixin, MDScreen):
         request_permission(key, on_result=on_result)
 
     def open_app_settings_page(self):
-        open_app_settings()
+        # Previously an unguarded call -- any exception inside
+        # open_app_settings() (a bad autoclass lookup, a pyjnius
+        # signature mismatch, anything) crashed the whole app with no
+        # visible cause. Catching it here means the very next tap
+        # either works, or shows you the real error text instead of a
+        # crash -- either outcome tells us what to do next.
+        try:
+            open_app_settings()
+        except Exception as exc:
+            print(f"[privacy_settings] open_app_settings failed: {exc}")
+            self._show_snackbar(f"Couldn't open settings: {exc}")
