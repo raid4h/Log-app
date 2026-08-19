@@ -1,3 +1,5 @@
+from kivy.config import Config
+Config.set('graphics', 'multisamples', '0')
 from kivy.lang import Builder
 from kivy.uix.screenmanager import ScreenManager
 from kivymd.app import MDApp
@@ -23,6 +25,8 @@ from screens.checklist_detail_screen import ChecklistDetailScreen
 from screens.privacy_settings_screen import PrivacySettingsScreen
 from screens.terms_screen import TermsScreen
 from screens.privacy_policy_screen import PrivacyPolicyScreen
+from services.notification_service import collect_due_notifications, send_system_notification
+from kivy.clock import Clock
 
 from legal_content import TERMS_VERSION
 from services.legal_store import has_agreed_to_version
@@ -34,7 +38,7 @@ from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 # keyboard, instead of the keyboard covering it. Does nothing on
 # desktop (there's no real on-screen keyboard here to trigger it) --
 # this only takes effect once running on an actual Android device or
-# emulator.Window.softinput_mode = "below_target"
+# emulator.
 Window.softinput_mode = 'resize'
 
 
@@ -57,7 +61,7 @@ class RootLayout(MDBoxLayout):
         self.sm.current = value
 
 
-class NoteNestApp(MDApp):
+class LogApp(MDApp):
     def build(self):
         create_tables()
         create_calendar_events_table()
@@ -68,7 +72,7 @@ class NoteNestApp(MDApp):
 
         theme_manager.load_saved_theme()
 
-        self.title = "NoteNest"
+        self.title = "Log"
         Builder.load_file("home_screen.kv")  # Tabshira: DashboardTile, SmallTile, HomeScreen
         Builder.load_file("notes.kv")  # Raidah: NoteCard, AttachmentThumbnail, NotesScreen, NoteEditorScreen, FormattingToolbar, RecentlyDeletedScreen
         Builder.load_file("settings_screen.kv")
@@ -122,7 +126,7 @@ class NoteNestApp(MDApp):
         # with whatever screen is actually showing, closing that gap.
         self.sm.bind(current=self._on_screen_changed)
         self._update_nav_visibility(self.sm.current)
-
+        Clock.schedule_interval(self._check_notifications, 30)
         return root
 
     def _on_screen_changed(self, instance, value):
@@ -326,9 +330,19 @@ class NoteNestApp(MDApp):
         theme_manager.bind(theme_name=refresh_nav_theme)
 
         return nav
-        
-        
+
+    def _check_notifications(self, dt):
+        user_id = getattr(self, "user_id", 1)
+        for note in collect_due_notifications(user_id=user_id):
+            send_system_notification(note["title"], self._notification_message(note))
+
+    def _notification_message(self, note):
+        if note.get("due_time"):
+            return f'At {note["due_time"]}'
+        if note.get("due_date"):
+            return f'Due {note["due_date"]}'
+        return "Reminder"
 
 
 if __name__ == "__main__":
-    NoteNestApp().run()
+    LogApp().run()

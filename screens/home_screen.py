@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import re
 
 from kivymd.uix.screen import MDScreen
 from kivy.utils import get_color_from_hex
@@ -43,12 +44,12 @@ from database.planner_queries import (
     get_next_event,
     create_study_task,
     get_task_detail,
-    get_today_focus_count,
 )
 
-from database.notes_queries import get_today_notes_count
-
-from services.checklist_store import create_checklist, get_all_checklists
+from services.checklist_store import (
+    create_checklist,
+    get_all_checklists,
+)
 
 
 # ============================================================
@@ -68,15 +69,53 @@ SHOPPING_LIST_TITLE = "Shopping List"
 
 
 # ============================================================
+# TIME FORMATTING HELPER
+# ============================================================
+
+def _format_time_12h(value):
+    """
+    Extracts a time from a stored time/datetime value and displays it
+    in 12-hour format, e.g. '18:00' -> '6:00 PM'.
+
+    Handles values such as:
+      18:00
+      18:00:00
+      2026-08-18 18:00
+      2026-08-18 18:00:00
+      2026-08-18T18:00:00+06:00
+    """
+    if value is None:
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    # Find HH:MM anywhere in the value. This also works when the
+    # database stores the date and time together in one field.
+    match = re.search(r"(?:^|[ T])([01]?\d|2[0-3]):([0-5]\d)", text)
+    if not match:
+        return ""
+
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+
+    period = "AM" if hour < 12 else "PM"
+    hour_12 = hour % 12 or 12
+
+    return f"{hour_12}:{minute:02d} {period}"
+
+
+# ============================================================
 # COLOR TINTING HELPER
 # ============================================================
-# Blends an icon's accent color into a base card color at a low
-# strength, so each quick-action tile / stat chip gets its own
-# tinted background instead of every tile sharing the exact same
-# CARD_SECONDARY fill. No new palette tokens required — this works
-# with whatever colors the active theme already defines.
 
 def _tint(icon_rgba, base_rgba, amount=0.16):
+    """
+    Blends an icon's accent color into a base card color at a low
+    strength, so each quick-action tile gets its own tinted
+    background.
+    """
     return [
         base_rgba[0] * (1 - amount) + icon_rgba[0] * amount,
         base_rgba[1] * (1 - amount) + icon_rgba[1] * amount,
@@ -109,8 +148,6 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
     root.route_quick_add(), etc. Because `root` inside a
     QuickAction block refers to QuickAction itself, these proxy
     methods forward the request to HomeScreen.
-
-    This keeps the existing KV callbacks working correctly.
     """
 
     def _get_home(self):
@@ -178,27 +215,11 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
     # ========================================================
     # QUICK ACTION TILE BACKGROUNDS
     # ========================================================
-    # Each is now individually tinted (see _tint()) using that
-    # tile's own icon color, instead of all four sharing a flat
-    # CARD_SECONDARY fill.
 
     quick_note_bg = ListProperty([0, 0, 0, 1])
     quick_checklist_bg = ListProperty([0, 0, 0, 1])
     quick_event_bg = ListProperty([0, 0, 0, 1])
     quick_focus_bg = ListProperty([0, 0, 0, 1])
-
-    # ========================================================
-    # TODAY STATS CARD - ICON CHIP BACKGROUNDS
-    # ========================================================
-    # Same tinting treatment, matched to each stat's icon color so
-    # the stats row visually echoes the quick-action tiles above it.
-
-    stats_tasks_bg = ListProperty([0, 0, 0, 1])
-    stats_notes_bg = ListProperty([0, 0, 0, 1])
-    stats_focus_bg = ListProperty([0, 0, 0, 1])
-
-    # Vertical divider between stat columns
-    border_color = ListProperty([0, 0, 0, 1])
 
     # ========================================================
     # INIT
@@ -226,9 +247,9 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         "date_label": ("text_color", TEXT_SECONDARY),
         "menu_button": ("icon_color", TEXT_PRIMARY),
 
-        "next_up_label": ("text_color", TEXT_PRIMARY),
-        "todays_plan_label": ("text_color", TEXT_PRIMARY),
-        "checklist_label": ("text_color", TEXT_PRIMARY),
+        "next_up_label": ("text_color", TEXT_SECONDARY),
+        "todays_log_label": ("text_color", TEXT_SECONDARY),
+        "today_count_label": ("text_color", TEXT_SECONDARY),
     }
 
     # ========================================================
@@ -241,9 +262,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
         self.set_greeting()
 
-        # Rebuild everything from the database whenever Home
-        # becomes visible.
-        self.build_today_summary()
+        # Rebuild the remaining Home sections from the database
+        # whenever Home becomes visible.
         self.refresh_stats()
         self.build_today_plan()
 
@@ -255,10 +275,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         """
         Updates HomeScreen colors using the existing theme system.
 
-        palettes.py is intentionally untouched. Per-tile background
-        distinction is achieved by tinting card_secondary_color with
-        each tile's own icon color at runtime (_tint()), rather than
-        by adding new palette tokens.
+        Per-tile background distinction is achieved by tinting
+        CARD_SECONDARY with each tile's own icon color at runtime.
         """
 
         try:
@@ -283,8 +301,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 theme_manager.get_color(TILE_ACCENT_POMODORO)
             )
 
-            # IMPORTANT:
-            # Event is intentionally different from Note.
+            # Event intentionally uses TEXT_SECONDARY so it remains
+            # visually distinct from Note.
             self.event_icon_color = get_color_from_hex(
                 theme_manager.get_color(TEXT_SECONDARY)
             )
@@ -302,15 +320,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             )
 
             # ------------------------------------------------
-            # QUICK ACTION TILE BACKGROUNDS (tinted per icon)
+            # QUICK ACTION TILE BACKGROUNDS
             # ------------------------------------------------
-            # Note   -> tinted with ACCENT (header_accent_color)
-            # Checklist -> tinted with TILE_ACCENT_TASKS (navy)
-            # Event  -> tinted with TEXT_SECONDARY (event_icon_color)
-            # Focus  -> tinted with TILE_ACCENT_POMODORO (green)
-            #
-            # Each tile now visually matches its own icon color
-            # instead of all four sharing one flat CARD_SECONDARY.
 
             self.quick_note_bg = _tint(
                 self.header_accent_color,
@@ -333,46 +344,16 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             )
 
             # ------------------------------------------------
-            # STATS CARD ICON CHIP BACKGROUNDS (tinted per icon)
-            # ------------------------------------------------
-            # Matched to the icon colors actually used in the KV
-            # for each stat chip: Tasks -> pomodoro-green icon,
-            # Notes -> navy icon, Focus -> accent icon.
-
-            self.stats_tasks_bg = _tint(
-                self.tile_accent_pomodoro_color,
-                self.card_secondary_color,
-            )
-
-            self.stats_notes_bg = _tint(
-                self.tile_accent_tasks_color,
-                self.card_secondary_color,
-            )
-
-            self.stats_focus_bg = _tint(
-                self.header_accent_color,
-                self.card_secondary_color,
-            )
-
-            # ------------------------------------------------
             # DIVIDER / BORDER
             # ------------------------------------------------
 
-            self.border_color = get_color_from_hex(
+            self.divider_color = get_color_from_hex(
                 theme_manager.get_color(BORDER)
             )
 
         except Exception:
             # Prevent early theme application from crashing the screen.
             pass
-
-        if hasattr(self.ids, "up_next_tile"):
-
-            if hasattr(
-                self.ids.up_next_tile,
-                "apply_theme"
-            ):
-                self.ids.up_next_tile.apply_theme()
 
     # ========================================================
     # GREETING
@@ -396,129 +377,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         self.ids.date_label.text = datetime.now().strftime(
             "%A, %d %B"
         )
-
-    # ========================================================
-    # TODAY SUMMARY / STATISTICS
-    # ========================================================
-
-    def build_today_summary(self):
-        """
-        Builds today's summary using the actual database counts.
-
-        Tasks:
-            unfinished planner tasks due today
-
-        Notes:
-            actual notes created today
-
-        Focus:
-            actual focus sessions started today
-        """
-
-        app = MDApp.get_running_app()
-
-        user_id = getattr(
-            app,
-            "user_id",
-            1
-        )
-
-        today_str = datetime.now().strftime(
-            "%Y-%m-%d"
-        )
-
-        # ----------------------------------------------------
-        # TASKS
-        # ----------------------------------------------------
-
-        tasks = get_today_tasks(
-            user_id,
-            today_str
-        )
-
-        task_count = len(tasks)
-
-        # ----------------------------------------------------
-        # NOTES
-        # ----------------------------------------------------
-        # This is now an actual count from the notes table,
-        # instead of counting only notes attached to today's
-        # planner tasks.
-
-        note_count = get_today_notes_count()
-
-        # ----------------------------------------------------
-        # FOCUS
-        # ----------------------------------------------------
-        # This is now an actual count of today's focus sessions.
-
-        focus_count = get_today_focus_count(
-            user_id
-        )
-
-        # ====================================================
-        # TODAY STATS CARD
-        # ====================================================
-
-        if hasattr(self.ids, "stat_tasks"):
-            self.ids.stat_tasks.text = str(task_count)
-
-        if hasattr(self.ids, "stat_notes"):
-            self.ids.stat_notes.text = str(note_count)
-
-        if hasattr(self.ids, "stat_focus"):
-            self.ids.stat_focus.text = str(focus_count)
-
-        # ----------------------------------------------------
-        # MAIN SUMMARY TEXT
-        # ----------------------------------------------------
-
-        if task_count == 0:
-
-            self.ids.today_summary_title.text = (
-                "Nothing planned yet"
-            )
-
-        elif task_count == 1:
-
-            self.ids.today_summary_title.text = (
-                "1 thing on your plan"
-            )
-
-        else:
-
-            self.ids.today_summary_title.text = (
-                f"{task_count} things on your plan"
-            )
-
-        # ----------------------------------------------------
-        # STATISTICS TEXT
-        # ----------------------------------------------------
-
-        self.ids.today_summary_stats.text = ""
-        self.ids.today_summary_stats.height = 0
-        self.ids.today_summary_stats.opacity = 0
-
-        # ----------------------------------------------------
-        # SUMMARY BAR
-        # ----------------------------------------------------
-        #
-        # This remains a visual activity indicator.
-        # It is NOT task completion percentage.
-        #
-
-        if task_count == 0:
-
-            progress = 0
-
-        else:
-
-            progress = min(
-                task_count / 5.0,
-                1.0
-            )
-
-        self.ids.summary_bar.size_hint_x = progress
 
     # ========================================================
     # TODAY'S PLAN
@@ -647,9 +505,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
             meta_parts = []
 
-            # These values are still useful for individual
-            # planner rows.
-
             if task.get("note_count"):
 
                 note_count = task["note_count"]
@@ -675,20 +530,30 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             )
 
             # ------------------------------------------------
-            # SUBTITLE (due date/time + meta)
+            # SUBTITLE
             # ------------------------------------------------
 
             subtitle_parts = []
 
-            due_date = task.get("due_date")
+            # Today's Log already tells the user this item is from today,
+            # so do NOT show the date. Get the time from due_time when
+            # available, otherwise extract it from due_date. Some database
+            # records store the full datetime in due_date.
+            stored_time = task.get("due_time") or task.get("due_date")
+            time_display = _format_time_12h(stored_time)
 
-            if due_date:
-                subtitle_parts.append(str(due_date))
+            if time_display:
+                subtitle_parts.append(time_display)
 
+            # Metadata
             if meta_text:
-                subtitle_parts.append(meta_text)
+                subtitle_parts.append(
+                    meta_text
+                )
 
-            subtitle_text = " · ".join(subtitle_parts)
+            subtitle_text = " · ".join(
+                subtitle_parts
+            )
 
             # ------------------------------------------------
             # ROW HEIGHT
@@ -714,7 +579,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
             row.bind(
                 on_release=lambda inst, t=task:
-                self.open_checklist_item(t) if t["activity_type"] == "checklist_item"
+                self.open_checklist_item(t)
+                if t["activity_type"] == "checklist_item"
                 else self.open_task_detail(t["id"])
             )
 
@@ -760,6 +626,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 anchor_x="center",
                 anchor_y="center",
             )
+
             icon_box.add_widget(
                 MDIcon(
                     icon=icon_name,
@@ -769,7 +636,10 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                     size=(dp(28), dp(28)),
                 )
             )
-            row.add_widget(icon_box)
+
+            row.add_widget(
+                icon_box
+            )
 
             # ------------------------------------------------
             # TEXT
@@ -799,9 +669,13 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 shorten=True,
                 shorten_from="right",
             )
-            text_box.add_widget(title_label)
+
+            text_box.add_widget(
+                title_label
+            )
 
             if subtitle_text:
+
                 subtitle_label = MDLabel(
                     text=subtitle_text,
                     font_style="Body",
@@ -812,10 +686,18 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                     shorten=True,
                     shorten_from="right",
                 )
-                text_box.add_widget(subtitle_label)
 
-            text_wrapper.add_widget(text_box)
-            row.add_widget(text_wrapper)
+                text_box.add_widget(
+                    subtitle_label
+                )
+
+            text_wrapper.add_widget(
+                text_box
+            )
+
+            row.add_widget(
+                text_wrapper
+            )
 
             # ------------------------------------------------
             # CHEVRON
@@ -827,6 +709,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 anchor_x="center",
                 anchor_y="center",
             )
+
             arrow_box.add_widget(
                 MDIcon(
                     icon="chevron-right",
@@ -836,7 +719,10 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                     size=(dp(22), dp(22)),
                 )
             )
-            row.add_widget(arrow_box)
+
+            row.add_widget(
+                arrow_box
+            )
 
             self.ids.today_plan_list.add_widget(
                 row
@@ -877,11 +763,23 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
     def open_task_detail(self, task_id):
 
-        if isinstance(task_id, str) and task_id.startswith("cal-"):
+        if isinstance(
+            task_id,
+            str
+        ) and task_id.startswith("cal-"):
 
-            calendar_screen = self.manager.get_screen("calendar")
-            calendar_screen.selected_date = datetime.now().strftime("%Y-%m-%d")
+            calendar_screen = self.manager.get_screen(
+                "calendar"
+            )
+
+            calendar_screen.selected_date = (
+                datetime.now().strftime(
+                    "%Y-%m-%d"
+                )
+            )
+
             self.manager.current = "calendar"
+
             return
 
         task = get_task_detail(
@@ -944,11 +842,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
     def open_checklist_item(self, task):
         """
-        Routes a tapped 'checklist_item' row (added-today, unchecked
-        top-level items -- see get_today_tasks()) to that item's
-        parent checklist on the detail screen. task['_checklist_id']
-        is stashed there by get_today_tasks() specifically so this
-        doesn't need a second DB lookup.
+        Routes a tapped 'checklist_item' row to its parent checklist.
         """
 
         detail_screen = self.manager.get_screen(
@@ -1051,16 +945,30 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         except (ValueError, TypeError):
 
             self.ids.next_up_title.text = title
-
-            self.ids.next_up_subtitle.text = (
-                str(due_date)
+            self.ids.next_up_subtitle.text = str(
+                due_date
             )
-
             self.ids.next_up_number.text = ""
-
             self.ids.next_up_unit.text = ""
 
             return
+
+        # ----------------------------------------------------
+        # ROLL FORWARD OVERDUE TIMED REMINDERS
+        # ----------------------------------------------------
+
+        now = datetime.now()
+
+        if due_time:
+
+            while due_datetime <= now:
+                due_datetime += timedelta(
+                    days=1
+                )
+
+        due_time_display = _format_time_12h(
+            due_time
+        )
 
         # ----------------------------------------------------
         # SUBTITLE
@@ -1069,7 +977,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         if due_datetime.date() == datetime.now().date():
 
             subtitle = (
-                due_time
+                due_time_display
                 or "Today"
             )
 
@@ -1079,28 +987,44 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 "%a, %d %b"
             )
 
-            if due_time:
+            if due_time_display:
 
                 subtitle += (
-                    f" · {due_time}"
+                    f" · {due_time_display}"
                 )
 
         # ----------------------------------------------------
         # TIME REMAINING
         # ----------------------------------------------------
 
-        minutes_until = int(
-            (
-                due_datetime
-                - datetime.now()
-            ).total_seconds()
-            // 60
+        seconds_until = max(
+            int(
+                (
+                    due_datetime
+                    - datetime.now()
+                ).total_seconds()
+            ),
+            0
         )
 
-        if minutes_until < 60:
+        minutes_until = (
+            seconds_until // 60
+        )
 
-            self.ids.next_up_number.text = str(
-                max(minutes_until, 0)
+        if seconds_until < 60:
+
+            self.ids.next_up_number.text = (
+                str(seconds_until)
+            )
+
+            self.ids.next_up_unit.text = (
+                "sec"
+            )
+
+        elif minutes_until < 60:
+
+            self.ids.next_up_number.text = (
+                str(minutes_until)
             )
 
             self.ids.next_up_unit.text = (
@@ -1113,8 +1037,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 minutes_until // 60
             )
 
-            self.ids.next_up_number.text = str(
-                hours_until
+            self.ids.next_up_number.text = (
+                str(hours_until)
             )
 
             self.ids.next_up_unit.text = (
@@ -1129,8 +1053,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 minutes_until // 1440
             )
 
-            self.ids.next_up_number.text = str(
-                days_until
+            self.ids.next_up_number.text = (
+                str(days_until)
             )
 
             self.ids.next_up_unit.text = (
@@ -1143,9 +1067,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         # UPDATE UI
         # ----------------------------------------------------
 
-        self.ids.next_up_title.text = (
-            title
-        )
+        self.ids.next_up_title.text = title
 
         self.ids.next_up_subtitle.text = (
             subtitle
@@ -1161,7 +1083,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             "note_editor"
         )
 
-        # None means create a new note.
         editor.current_note_id = None
 
         self.manager.current = (
@@ -1371,7 +1292,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             1
         )
 
-        # Avoid an empty ugly title.
         subject = (
             subject.strip()
             if subject
@@ -1410,10 +1330,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
         else:
 
-            # Immediately refresh Home so the new
-            # study task appears without reopening
-            # the app.
-            self.build_today_summary()
+            # Refresh only the Home sections that still exist.
             self.refresh_stats()
             self.build_today_plan()
 

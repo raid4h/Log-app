@@ -92,6 +92,7 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
 
     # ── backup: export/import only (offline app, no cloud) ──
     def export_to_file(self):
+        print(">>> EXPORT TAPPED")
         # NOTE: the exported file is PLAIN, UNENCRYPTED JSON -- anyone
         # with access to it can read every note it contains.
         from services.manual_export import export_backup_to_file, ExportCancelled

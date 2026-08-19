@@ -16,6 +16,7 @@ import sys
 
 from kivy.app import App
 from kivy.utils import platform
+from kivy.metrics import dp
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.dialog import (
     MDDialog,
@@ -28,6 +29,7 @@ from kivymd.uix.button import MDButton, MDButtonText
 from theme.theme_manager import theme_manager
 from theme.themed_screen import ThemedScreenMixin
 from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT
+from theme.safe_area import get_bottom_inset
 
 from legal_content import TERMS_TEXT, TERMS_VERSION
 from services.legal_store import record_agreement
@@ -43,6 +45,19 @@ class TermsScreen(ThemedScreenMixin, MDScreen):
         "agree_checkbox":  ("color_active", ACCENT),
         "checkbox_label":  ("text_color", TEXT_PRIMARY),
     }
+
+    def on_kv_post(self, base_widget):
+        super().on_kv_post(base_widget)
+        # Pads the bottom of the whole screen by the real system
+        # gesture-nav-bar height, on top of the normal dp(20) design
+        # padding -- so Decline/I Agree always sit fully above the
+        # gesture zone instead of underneath it. get_bottom_inset()
+        # returns 0 on desktop/older Android, so this is a no-op
+        # there (base_padding is unchanged).
+        extra = get_bottom_inset()
+        if extra:
+            left, top, right, bottom = self.ids.root_layout.padding
+            self.ids.root_layout.padding = [left, top, right, bottom + extra]
 
     def on_pre_enter(self, *args):
         self.ids.terms_label.text = TERMS_TEXT

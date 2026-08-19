@@ -12,9 +12,14 @@ from task_queries.py, reminder_queries.py, category_queries.py, etc.
 
 Only `get_connection` is imported from database/db.py (read-only
 import -- db.py itself is never modified by this feature).
+
+NOTE: get_triggered_calendar_events() / mark_calendar_event_notified()
+are read-only additions for the notification poller (services layer).
+They only read/update the `notified` column and don't change any
+other function's behavior.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 from database.db import get_connection
 
@@ -23,9 +28,9 @@ def create_calendar_events_table():
     """
     Ensures the calendar_events table exists, and migrates in any
     columns added after the table was first created (event_link,
-    then the recurring-reminder columns) -- CREATE TABLE IF NOT
-    EXISTS alone won't add a column to a table that's already there,
-    so each one is checked for explicitly.
+    then the recurring-reminder columns, then notified) -- CREATE
+    TABLE IF NOT EXISTS alone won't add a column to a table that's
+    already there, so each one is checked for explicitly.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -54,6 +59,7 @@ def create_calendar_events_table():
         "completed": "INTEGER DEFAULT 0",
         "original_date": "TEXT",
         "missed_days": "INTEGER DEFAULT 0",
+        "notified": "INTEGER DEFAULT 0",
     }
     for column_name, column_type in migrations.items():
         if column_name not in existing_columns:
@@ -79,9 +85,9 @@ def create_event(user_id, title, event_date, event_time=None, event_link=None, i
     cursor.execute('''
         INSERT INTO calendar_events(
             user_id, title, event_date, event_time, event_link,
-            is_recurring, completed, original_date, missed_days
+            is_recurring, completed, original_date, missed_days, notified
         )
-        VALUES(?, ?, ?, ?, ?, ?, 0, ?, 0)
+        VALUES(?, ?, ?, ?, ?, ?, 0, ?, 0, 0)
     ''', (
         user_id, title, event_date, event_time, event_link,
         1 if is_recurring else 0, original_date,
@@ -180,15 +186,19 @@ def update_event(event_id, title, event_time=None, event_link=None, is_recurring
     missed-day counts start counting from the right point. Turning it
     OFF clears original_date and resets missed_days, since a
     non-recurring reminder never rolls forward again.
+
+    Resets notified back to 0 whenever the time changes, so an event
+    that already fired and then gets rescheduled will notify again at
+    its new time instead of staying silently "already notified".
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT event_date, original_date, missed_days FROM calendar_events WHERE id = ?",
+        "SELECT event_date, original_date, missed_days, event_time FROM calendar_events WHERE id = ?",
         (event_id,),
     )
     row = cursor.fetchone()
-    event_date, original_date, missed_days = row if row else (None, None, 0)
+    event_date, original_date, missed_days, old_event_time = row if row else (None, None, 0, None)
 
     if is_recurring:
         if not original_date:
@@ -197,15 +207,28 @@ def update_event(event_id, title, event_time=None, event_link=None, is_recurring
         original_date = None
         missed_days = 0
 
-    cursor.execute('''
-        UPDATE calendar_events
-        SET title = ?, event_time = ?, event_link = ?, is_recurring = ?,
-            original_date = ?, missed_days = ?
-        WHERE id = ?
-    ''', (
-        title, event_time, event_link, 1 if is_recurring else 0,
-        original_date, missed_days, event_id,
-    ))
+    notified_reset = 0 if event_time != old_event_time else None
+
+    if notified_reset is None:
+        cursor.execute('''
+            UPDATE calendar_events
+            SET title = ?, event_time = ?, event_link = ?, is_recurring = ?,
+                original_date = ?, missed_days = ?
+            WHERE id = ?
+        ''', (
+            title, event_time, event_link, 1 if is_recurring else 0,
+            original_date, missed_days, event_id,
+        ))
+    else:
+        cursor.execute('''
+            UPDATE calendar_events
+            SET title = ?, event_time = ?, event_link = ?, is_recurring = ?,
+                original_date = ?, missed_days = ?, notified = ?
+            WHERE id = ?
+        ''', (
+            title, event_time, event_link, 1 if is_recurring else 0,
+            original_date, missed_days, notified_reset, event_id,
+        ))
     conn.commit()
     conn.close()
 
@@ -230,6 +253,10 @@ def roll_forward_recurring_events(user_id):
     between original_date and today. Meant to be called once each
     time the Calendar screen is opened (see CalendarScreen.on_pre_enter)
     -- cheap (one UPDATE per stale reminder), no background timer.
+
+    Also resets notified back to 0 for each rolled-forward event, so
+    a recurring reminder that already fired on a previous (missed)
+    day will notify again at its time today.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -253,7 +280,7 @@ def roll_forward_recurring_events(user_id):
 
         cursor.execute('''
             UPDATE calendar_events
-            SET event_date = ?, missed_days = ?
+            SET event_date = ?, missed_days = ?, notified = 0
             WHERE id = ?
         ''', (today_str, max(missed, 0), event_id))
 
@@ -286,11 +313,12 @@ def _row_to_dict(row):
         "missed_days": row[9],
         "created_at": row[10],
     }
-    
+
+
 def get_next_calendar_event(user_id):
     """
     Returns the soonest upcoming, not-completed calendar event for a
-    user (today or later, ordered by date then time — untimed events
+    user (today or later, ordered by date then time -- untimed events
     on a given date sort before timed ones, same convention as
     get_events_by_date). Returns a dict, or None if there's nothing
     upcoming. Read-only addition for HomeScreen's "Next Up" card --
@@ -314,6 +342,7 @@ def get_next_calendar_event(user_id):
     conn.close()
     return _row_to_dict(row) if row else None
 
+
 def get_today_calendar_events(user_id, today_date):
     conn = get_connection()
     cursor = conn.cursor()
@@ -326,3 +355,57 @@ def get_today_calendar_events(user_id, today_date):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+def get_triggered_calendar_events(user_id):
+    """
+    Read-only addition for the notification poller (mirrors
+    reminder_queries.get_triggered_reminders). Returns timed,
+    incomplete, not-yet-notified events whose date+time has already
+    passed for this user.
+
+    Untimed events (event_time NULL/empty) are intentionally excluded
+    -- they have no specific moment to fire a notification at, so
+    they only ever surface visually in the day's agenda, never as a
+    push/system notification.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
+    cursor.execute('''
+        SELECT id, user_id, title, event_date, event_time, event_link
+        FROM calendar_events
+        WHERE user_id = ?
+          AND completed = 0
+          AND notified = 0
+          AND event_time IS NOT NULL AND event_time != ''
+          AND (event_date < ? OR (event_date = ? AND event_time <= ?))
+        ORDER BY event_date ASC, event_time ASC
+    ''', (user_id, today_str, today_str, time_str))
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "user_id": row[1],
+            "title": row[2],
+            "event_date": row[3],
+            "event_time": row[4],
+            "event_link": row[5],
+        }
+        for row in rows
+    ]
+
+
+def mark_calendar_event_notified(event_id):
+    """Marks a calendar event as notified so it won't be picked up
+    again by get_triggered_calendar_events on the next poll."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE calendar_events SET notified = 1 WHERE id = ?", (event_id,)
+    )
+    conn.commit()
+    conn.close()
