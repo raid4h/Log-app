@@ -1,6 +1,10 @@
 # screens/editor/formatting_mixin.py
-# Bold/italic/underline/highlight (wrap or un-wrap selected text),
-# font size, font family, and text alignment.
+# Bold/italic/underline (wrap or un-wrap selected text), font size,
+# font family, and text alignment. Highlight (==...==) was REMOVED as
+# a toolbar feature -- it was a deliberate color-based approximation
+# of a background highlight, made redundant once real text color
+# (TextColorMixin, color_mixin.py) shipped. See markup.py for how
+# already-saved ==...== markers in existing notes are still handled.
 
 from screens.editor.font_registry import FONT_SIZES, FONT_CHOICES
 
@@ -66,9 +70,6 @@ class FormattingMixin:
 
     def make_underline(self):
         self._wrap_selection("__")
-
-    def make_highlight(self):
-        self._wrap_selection("==")
 
     def increase_font_size(self):
         field = self.ids.content_field

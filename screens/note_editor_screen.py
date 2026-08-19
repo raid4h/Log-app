@@ -38,6 +38,7 @@ from screens.editor.undo_redo_mixin import UndoRedoMixin
 from screens.editor.search_mixin import SearchMixin
 from screens.editor.image_mixin import ImageAttachmentMixin
 from screens.editor.link_mixin import HyperlinkMixin
+from screens.editor.color_mixin import TextColorMixin
 from screens.editor.export_mixin import ExportMixin
 from screens.editor.delete_mixin import DeleteConfirmationMixin
 from screens.editor.category_mixin import CategoryMixin, CategoryPillButton  # noqa: F401
@@ -52,6 +53,7 @@ class NoteEditorScreen(
     SearchMixin,
     ImageAttachmentMixin,
     HyperlinkMixin,
+    TextColorMixin,
     ExportMixin,
     DeleteConfirmationMixin,
     CategoryMixin,
@@ -126,6 +128,10 @@ class NoteEditorScreen(
         self._link_ref_counter = 0
         self._pending_link_selection = None
         self._editing_link_span = None  # (start, end) of an existing {{link:...}} marker being edited, or None
+
+        # Text color state (TextColorMixin)
+        self._pending_color_selection = None  # (kind, selected, start, end) or None -- kind is "edit" or "wrap"
+        self._active_color_modal = None
         # Snapshot of (title, content, font, size, align, category) at
         # the moment a note was loaded or last saved -- compared
         # against the live state to detect unsaved changes on exit.
@@ -260,6 +266,20 @@ class NoteEditorScreen(
             container.remove_widget(self._preview_scroll)
         if self.ids.content_scroll.parent is None:
             container.add_widget(self.ids.content_scroll)
+
+        # Explicitly pin the view to the top on entry. Without this,
+        # the guaranteed keyboard-space spacer (which always adds a
+        # little extra scrollable height, even with the keyboard
+        # closed) can leave the initial view not quite at the top by
+        # default, clipping the first line / hint text. Scheduled a
+        # frame later so it runs after this frame's height/layout
+        # changes actually apply -- same reasoning as _scroll_to_cursor.
+        Clock.schedule_once(self._reset_scroll_to_top, 0)
+
+    def _reset_scroll_to_top(self, dt):
+        scroll_view = self.ids.get("content_scroll")
+        if scroll_view is not None:
+            scroll_view.scroll_y = 1  # 1 = top of content, per Kivy's ScrollView convention
 
     def show_preview_mode(self):
         raw = self.ids.content_field.text
@@ -431,4 +451,16 @@ class NoteEditorScreen(
             return  # Cursor is already visible -- nothing to do.
 
         shortfall = visible_bottom - cursor_window_y
-        scroll_view.scroll_y = max(0, scroll_view.scroll_y - shortfall / max(scroll_view.height, 1))
+
+        # scroll_y is normalized over the SCROLLABLE RANGE (content
+        # height minus viewport height), not the viewport height
+        # itself -- dividing by scroll_view.height (previous version)
+        # under-shot the needed scroll amount whenever content is
+        # significantly taller than the viewport, which is exactly
+        # the case that matters for a long note. The scrollable
+        # content is content_scroll's own child, content_scroll_inner.
+        content_widget = scroll_view.children[0] if scroll_view.children else None
+        content_height = content_widget.height if content_widget else scroll_view.height
+        scrollable_range = max(content_height - scroll_view.height, 1)
+
+        scroll_view.scroll_y = max(0, scroll_view.scroll_y - shortfall / scrollable_range)

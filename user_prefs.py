@@ -13,6 +13,7 @@ PREFS_FILE = os.path.join(_PROJECT_ROOT, "user_prefs.json")
 
 _DEFAULTS = {
     "view_mode": "list",
+    "recent_text_colors": [],
 }
 
 

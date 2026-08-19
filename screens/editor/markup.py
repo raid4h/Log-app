@@ -1,9 +1,12 @@
 # screens/editor/markup.py
 # Converts a note's plain-text formatting markers ({{img:...}},
-# {{link:...}}, **bold**, __underline__, ==highlight==) into either
+# {{link:...}}, {{color:...}}, **bold**, __underline__) into either
 # real Kivy markup (for Preview mode) or clean plain text (for the
 # notes-list preview and .txt export). Pure text transformation, no
-# dependency on the screen itself.
+# dependency on the screen itself. NOTE: ==highlight== markers were
+# removed as a creatable feature (superseded by real text color) --
+# no existing notes used it, so no migration/back-compat parsing was
+# kept for it.
 
 import re
 from kivy.utils import escape_markup
@@ -13,6 +16,11 @@ from urllib.parse import urlparse
 IMAGE_TOKEN_PATTERN = re.compile(r"\{\{img:(.*?)\}\}")
 # Matches an inline hyperlink marker, e.g. {{link:https://example.com|click here}}
 LINK_TOKEN_PATTERN = re.compile(r"\{\{link:(.*?)\|(.*?)\}\}", re.DOTALL)
+# Matches a text-color marker pair, e.g.
+# {{color:#B03A2E}}some text{{/color}} -- a real per-span foreground
+# color, separate from ==highlight==, which is its own deliberate
+# approximation of a background highlight using color too.
+COLOR_TOKEN_PATTERN = re.compile(r"\{\{color:(#[0-9A-Fa-f]{6})\}\}(.*?)\{\{/color\}\}", re.DOTALL)
 
 
 def escape_and_apply_format_markup(text):
@@ -22,10 +30,6 @@ def escape_and_apply_format_markup(text):
     text = re.sub(r"\*\*(.+?)\*\*", r"[b]\1[/b]", text, flags=re.DOTALL)
     text = re.sub(r"__(.+?)__", r"[u]\1[/u]", text, flags=re.DOTALL)
     text = re.sub(r"\*(.+?)\*", r"[i]\1[/i]", text, flags=re.DOTALL)
-    # Kivy's Label markup has no true background-highlight tag, so this
-    # is approximated with a distinct text color -- a known, deliberate
-    # simplification.
-    text = re.sub(r"==(.+?)==", r"[color=#B8860B]\1[/color]", text, flags=re.DOTALL)
     return text
 
 
@@ -46,9 +50,12 @@ def strip_markers_for_export(raw_content):
     # raw marker or the URL. (This was previously missing entirely --
     # links used to leak into previews/exports as raw markers.)
     text = LINK_TOKEN_PATTERN.sub(lambda m: m.group(2), text)
+    # Colored text shows as just its plain content in previews/export,
+    # same treatment as links above -- the color itself isn't
+    # meaningful outside the actual editor/preview.
+    text = COLOR_TOKEN_PATTERN.sub(lambda m: m.group(2), text)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text, flags=re.DOTALL)
     text = re.sub(r"__(.+?)__", r"\1", text, flags=re.DOTALL)
-    text = re.sub(r"==(.+?)==", r"\1", text, flags=re.DOTALL)
     text = re.sub(r"\*(.+?)\*", r"\1", text, flags=re.DOTALL)
     return text.strip()
 
@@ -77,13 +84,11 @@ def convert_markers_to_html(raw_content, image_to_html):
     text = LINK_TOKEN_PATTERN.sub(
         lambda m: f'<a href="{m.group(1)}">{m.group(2)}</a>', text
     )
+    text = COLOR_TOKEN_PATTERN.sub(
+        lambda m: f'<span style="color:{m.group(1)}">{m.group(2)}</span>', text
+    )
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
     text = re.sub(r"__(.+?)__", r"<u>\1</u>", text, flags=re.DOTALL)
-    text = re.sub(
-        r"==(.+?)==",
-        r'<span style="background-color:#FFF3B0">\1</span>',
-        text, flags=re.DOTALL,
-    )
     text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text, flags=re.DOTALL)
     # Plain newlines don't create line breaks in HTML -- convert them
     # to <br> explicitly so paragraph breaks in the note are kept.

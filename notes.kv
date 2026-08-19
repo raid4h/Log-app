@@ -681,10 +681,10 @@
                 on_release: app.root.get_screen('note_editor').make_underline()
 
             MDIconButton:
-                id: highlight_button
-                icon: "marker"
+                id: text_color_button
+                icon: "palette"
                 theme_icon_color: "Custom"
-                on_release: app.root.get_screen('note_editor').make_highlight()
+                on_release: app.root.get_screen('note_editor').make_text_color()
 
             MDIconButton:
                 id: link_button

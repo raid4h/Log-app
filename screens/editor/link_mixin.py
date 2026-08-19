@@ -32,10 +32,15 @@ class HyperlinkMixin:
         return LINK_TOKEN_PATTERN.sub(_replace, text)
 
     def _convert_part_for_preview(self, text):
-        # Order matters: escape first, THEN convert links (injects
-        # real tags), THEN bold/italic/underline/highlight.
+        # Order matters: escape first, THEN convert links and colors
+        # (both inject real markup tags via {{...}} syntax), THEN
+        # bold/italic/underline/highlight (**, __, *, ==).
+        # _convert_colors_to_markup lives in TextColorMixin
+        # (color_mixin.py) -- reachable via self since both mixins
+        # compose onto the same NoteEditorScreen instance.
         text = escape_markup(text)
         text = self._convert_links_to_markup(text)
+        text = self._convert_colors_to_markup(text)
         text = escape_and_apply_format_markup(text)
         return text
 
