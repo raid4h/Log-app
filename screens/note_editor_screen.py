@@ -147,6 +147,15 @@ class NoteEditorScreen(
         Window.bind(keyboard_height=self.setter("keyboard_height"))
         self.ids.content_field.bind(cursor_pos=self._scroll_to_cursor)
         self.bind(keyboard_height=self._scroll_to_cursor)
+        # ALSO retrigger once the field's own height actually settles.
+        # TextInput recomputes minimum_height (which content_field's
+        # height is bound to in KV) via its own internally-scheduled
+        # refresh, which can land a frame or two after cursor_pos
+        # changes -- so the FIRST _do_scroll_to_cursor call can run
+        # against still-stale info and wrongly conclude the cursor is
+        # already visible. Re-checking once height settles catches
+        # and corrects that, without guessing a magic delay number.
+        self.ids.content_field.bind(height=self._scroll_to_cursor)
 
 
     def _current_snapshot(self):
@@ -446,6 +455,12 @@ class NoteEditorScreen(
         # The visible (non-keyboard-covered) area starts just above
         # the keyboard's top edge.
         visible_bottom = self.keyboard_height + dp(20)
+
+        # TEMP DEBUG -- remove once scrolling is confirmed correct on
+        # device. Visible via `adb logcat` (filter for SCROLL_DEBUG).
+        print(f"SCROLL_DEBUG cursor_y={cursor_window_y:.0f} visible_bottom={visible_bottom:.0f} "
+              f"field_h={field.height:.0f} content_h={content_height:.0f} "
+              f"viewport_h={scroll_view.height:.0f} scroll_y={scroll_view.scroll_y:.3f}")
 
         if cursor_window_y >= visible_bottom:
             return  # Cursor is already visible -- nothing to do.
