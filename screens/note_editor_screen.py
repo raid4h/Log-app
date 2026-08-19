@@ -456,6 +456,14 @@ class NoteEditorScreen(
         # the keyboard's top edge.
         visible_bottom = self.keyboard_height + dp(20)
 
+        # scroll_y is normalized over the SCROLLABLE RANGE (content
+        # height minus viewport height), not the viewport height
+        # itself -- computed unconditionally (moved above the debug
+        # print and the early return below) so both can safely use it.
+        content_widget = scroll_view.children[0] if scroll_view.children else None
+        content_height = content_widget.height if content_widget else scroll_view.height
+        scrollable_range = max(content_height - scroll_view.height, 1)
+
         # TEMP DEBUG -- remove once scrolling is confirmed correct on
         # device. Visible via `adb logcat` (filter for SCROLL_DEBUG).
         print(f"SCROLL_DEBUG cursor_y={cursor_window_y:.0f} visible_bottom={visible_bottom:.0f} "
@@ -466,16 +474,4 @@ class NoteEditorScreen(
             return  # Cursor is already visible -- nothing to do.
 
         shortfall = visible_bottom - cursor_window_y
-
-        # scroll_y is normalized over the SCROLLABLE RANGE (content
-        # height minus viewport height), not the viewport height
-        # itself -- dividing by scroll_view.height (previous version)
-        # under-shot the needed scroll amount whenever content is
-        # significantly taller than the viewport, which is exactly
-        # the case that matters for a long note. The scrollable
-        # content is content_scroll's own child, content_scroll_inner.
-        content_widget = scroll_view.children[0] if scroll_view.children else None
-        content_height = content_widget.height if content_widget else scroll_view.height
-        scrollable_range = max(content_height - scroll_view.height, 1)
-
         scroll_view.scroll_y = max(0, scroll_view.scroll_y - shortfall / scrollable_range)
