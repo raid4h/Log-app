@@ -7,6 +7,7 @@
 
 import re
 from kivy.utils import escape_markup
+from urllib.parse import urlparse
 
 # Matches an inline image marker, e.g. {{img:note_attachments/abc123.jpg}}
 IMAGE_TOKEN_PATTERN = re.compile(r"\{\{img:(.*?)\}\}")
@@ -88,3 +89,24 @@ def convert_markers_to_html(raw_content, image_to_html):
     # to <br> explicitly so paragraph breaks in the note are kept.
     text = text.replace("\n", "<br>\n")
     return text
+
+def extract_domain_label(url):
+    """Best-effort short label from a URL, e.g.
+    'https://www.youtube.com/watch?v=x' -> 'youtube.com'. Used to
+    auto-fill the link display-text field when the user hasn't typed
+    a custom one themselves. Falls back to 'Link' if the string isn't
+    really URL-shaped yet (e.g. still empty or mid-typing)."""
+    url = url.strip()
+    if not url:
+        return ""
+    # urlparse needs a scheme to correctly split out the domain --
+    # if the user hasn't typed http(s):// yet, add one temporarily
+    # just for this parse (doesn't affect what gets saved).
+    candidate = url if "://" in url else f"https://{url}"
+    try:
+        netloc = urlparse(candidate).netloc
+    except ValueError:
+        netloc = ""
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return netloc or "Link"

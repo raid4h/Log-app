@@ -125,6 +125,7 @@ class NoteEditorScreen(
         self._preview_link_map = {}
         self._link_ref_counter = 0
         self._pending_link_selection = None
+        self._editing_link_span = None  # (start, end) of an existing {{link:...}} marker being edited, or None
         # Snapshot of (title, content, font, size, align, category) at
         # the moment a note was loaded or last saved -- compared
         # against the live state to detect unsaved changes on exit.
