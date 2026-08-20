@@ -404,12 +404,32 @@ class NoteEditorScreen(
         modal.bind(on_touch_down=lambda inst, touch: modal.dismiss())
         modal.open()
 
+    def _flash_title_warning(self):
+        # A bare print() here is invisible in a real installed APK --
+        # there's no console for anyone to see it in. Tapping Save
+        # with an empty title used to look EXACTLY like Save silently
+        # doing nothing at all, repeatedly, with zero feedback. This
+        # makes the actual cause visible and actionable instead.
+        field = self.ids.title_field
+        field.hint_text = "Please add a title"
+        field.hint_text_color = (0.72, 0.20, 0.15, 1)  # warning red
+        field.focus = True
+        Clock.schedule_once(self._reset_title_hint, 2.5)
+
+    def _reset_title_hint(self, dt):
+        field = self.ids.get("title_field")
+        # Guard: only revert if still empty -- if the user already
+        # started typing a title in the meantime, leave it alone.
+        if field is not None and not field.text.strip():
+            field.hint_text = "Title"
+            field.hint_text_color = theme_manager.get_color(TEXT_SECONDARY)
+
     def save_note(self):
         title = self.ids.title_field.text.strip()
         content = self.ids.content_field.text.strip()
 
         if not title:
-            print("Please add a title")
+            self._flash_title_warning()
             return
 
         if self._history_debounce_event:
