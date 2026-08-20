@@ -355,9 +355,13 @@
 
                     MDIconButton:
                         id: preview_button
-                        icon: "eye-outline"
+                        # Reflects the current view_mode: plain eye for
+                        # Edit, a split icon for Split, checked eye for
+                        # full Preview -- updates automatically since
+                        # view_mode is a real Kivy property now.
+                        icon: "eye-outline" if root.view_mode == "edit" else ("view-split-horizontal" if root.view_mode == "split" else "eye")
                         theme_icon_color: "Custom"
-                        on_release: app.root.get_screen('note_editor').toggle_preview()
+                        on_release: app.root.get_screen('note_editor').cycle_view_mode()
 
                     MDIconButton:
                         id: export_button

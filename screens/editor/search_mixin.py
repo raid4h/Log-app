@@ -7,16 +7,22 @@ from kivy.clock import Clock
 
 class SearchMixin:
     """Requires: self.ids.content_field, self.ids.search_query_field,
-    self.ids.search_match_label, self.is_preview, self.show_search."""
+    self.ids.search_match_label, self.view_mode, self.set_view_mode(),
+    self.show_search."""
 
     def toggle_search(self):
         self.show_search = not self.show_search
         field = self.ids.content_field
 
         if self.show_search:
-            if self.is_preview:
-                self.is_preview = False
-                self.show_edit_mode()
+            # Only forces a switch out of FULL preview -- content_field
+            # is already visible and typeable in Split mode, so search
+            # should just open in place there instead of collapsing
+            # the split view back to edit-only. (Used to check
+            # self.is_preview, which is True for both split and full
+            # preview -- that incorrectly collapsed split mode too.)
+            if self.view_mode == "preview":
+                self.set_view_mode("edit")
             self.ids.search_query_field.text = ""
             self._search_matches = []
             self._search_match_index = -1

@@ -16,7 +16,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
 from kivy.uix.behaviors import ButtonBehavior
-from kivy.properties import BooleanProperty, NumericProperty
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty
 from kivymd.uix.screen import MDScreen
 from kivy.core.window import Window
 from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 -- registers the widget class with KV before app.kv loads it, same fix as the earlier DashboardTile "Unknown class" issue
@@ -108,6 +108,21 @@ class NoteEditorScreen(
     # Window.keyboard_height (always 0 on this platform/backend).
     keyboard_height = NumericProperty(0)
 
+    # One of "edit", "split", "preview" -- cycled by the eye icon via
+    # cycle_view_mode(). A real Kivy property (not a plain attribute)
+    # so the toolbar icon can react to it directly in KV. is_preview
+    # is kept in sync alongside this (True for BOTH "split" and
+    # "preview") purely for backward compatibility with any existing
+    # code that still reads the old plain is_preview flag.
+    view_mode = StringProperty("edit")
+
+    # How much of the split view's height the preview pane gets --
+    # shrinks while actively typing (still a visible peek, not fully
+    # hidden) so editing gets the room, and expands back once you tap
+    # out of the field. Tune these two to taste.
+    SPLIT_PREVIEW_RATIO_EXPANDED = 0.45
+    SPLIT_PREVIEW_RATIO_COLLAPSED = 0.15
+
     # NOTE: every key below was checked against the actual ids in
     # app.kv's <NoteEditorScreen>: rule. header_bar/title_bar/
     # decrease_font_button/increase_font_button/cycle_font_button were
@@ -181,6 +196,22 @@ class NoteEditorScreen(
         # holds the Clock event while content_field is focused, so it
         # can be cancelled the instant focus is lost.
         self._keyboard_poll_event = None
+
+        # Split view (view_mode == "split") -- built once and reused,
+        # same pattern as _preview_content/_preview_scroll above.
+        self._split_divider = BoxLayout(size_hint_y=None, height=dp(28), padding=(dp(4), 0))
+        divider_label = MDLabel(
+            text="Preview", font_style="Label", role="small",
+            theme_text_color="Custom", text_color=(0.54, 0.35, 0.17, 1),
+            halign="left", valign="middle",
+        )
+        divider_label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+        self._split_divider.add_widget(divider_label)
+        # Debounces live preview updates while typing in split view --
+        # same debounce-then-rebuild idea as the undo history's own
+        # _history_debounce_event, just for a different purpose.
+        self._split_preview_debounce_event = None
+
         # Snapshot of (title, content, font, size, align, category) at
         # the moment a note was loaded or last saved -- compared
         # against the live state to detect unsaved changes on exit.
@@ -206,6 +237,12 @@ class NoteEditorScreen(
         # (e.g. the keyboard finishes animating open) -- this can
         # happen without cursor_pos changing at all.
         self.bind(keyboard_height=self._scroll_to_cursor)
+
+        # Split view: collapse/expand the preview pane based on
+        # whether the user is actively typing, and keep it live-
+        # updated (debounced) while they type.
+        self.ids.content_field.bind(focus=self._on_split_focus_changed)
+        self.ids.content_field.bind(text=self._on_split_text_changed)
 
 
     def _current_snapshot(self):
@@ -274,6 +311,7 @@ class NoteEditorScreen(
         self._reset_search_state()
 
     def on_enter(self):
+        self.view_mode = "edit"
         self.is_preview = False
         if self.current_note_id is not None:
             self.load_note(self.current_note_id)
@@ -312,19 +350,20 @@ class NoteEditorScreen(
         self._reset_editing_state()
         self._loaded_snapshot = self._current_snapshot()
 
-    def toggle_preview(self):
-        self.is_preview = not self.is_preview
-        if self.is_preview:
-            self.show_preview_mode()
-        else:
-            self.show_edit_mode()
+    def _clear_content_container(self):
+        # Removes whichever of content_scroll / _preview_scroll /
+        # _split_divider are currently in content_container, if any --
+        # a safe reset point before each show_*_mode() rebuilds it,
+        # regardless of which mode was active before.
+        container = self.ids.content_container
+        for widget in (self.ids.content_scroll, self._preview_scroll, self._split_divider):
+            if widget.parent is not None:
+                widget.parent.remove_widget(widget)
 
     def show_edit_mode(self):
-        container = self.ids.content_container
-        if self._preview_scroll.parent is not None:
-            container.remove_widget(self._preview_scroll)
-        if self.ids.content_scroll.parent is None:
-            container.add_widget(self.ids.content_scroll)
+        self._clear_content_container()
+        self.ids.content_scroll.size_hint_y = 1  # reset in case split mode shrank it
+        self.ids.content_container.add_widget(self.ids.content_scroll)
 
         # Explicitly pin the view to the top on entry. Without this,
         # the guaranteed keyboard-space spacer (which always adds a
@@ -340,7 +379,11 @@ class NoteEditorScreen(
         if scroll_view is not None:
             scroll_view.scroll_y = 1  # 1 = top of content, per Kivy's ScrollView convention
 
-    def show_preview_mode(self):
+    def _render_preview_content(self):
+        # Rebuilds _preview_content's children from the current raw
+        # text -- used by BOTH full preview mode and split mode's
+        # bottom pane, which is why this is split out from
+        # show_preview_mode() rather than staying inline in it.
         raw = self.ids.content_field.text
         self._preview_content.clear_widgets()
         self._preview_link_map = {}
@@ -362,11 +405,6 @@ class NoteEditorScreen(
                     source=part, size_hint=(None, None), size=(dp(220), dp(220)),
                     pos_hint=img_pos_hint, allow_stretch=True,
                 )
-                # Captured as a default arg (p=part), not a direct
-                # closure over the loop variable -- part changes each
-                # iteration, so a plain closure would make every
-                # image's tap handler open whichever image happened
-                # to be LAST in the note.
                 img.bind(on_release=lambda inst, p=part: self._open_image_fullscreen(p))
                 self._preview_content.add_widget(img)
             elif part.strip():
@@ -382,12 +420,62 @@ class NoteEditorScreen(
                 label.bind(on_ref_press=self._on_preview_link_pressed)
                 self._preview_content.add_widget(label)
 
+    def show_preview_mode(self):
+        self._render_preview_content()
+        self._clear_content_container()
+        self._preview_scroll.size_hint_y = 1  # reset in case split mode shrank it
+        self.ids.content_container.add_widget(self._preview_scroll)
 
+    def show_split_mode(self):
+        self._render_preview_content()
+        self._clear_content_container()
         container = self.ids.content_container
-        if self.ids.content_scroll.parent is not None:
-            container.remove_widget(self.ids.content_scroll)
-        if self._preview_scroll.parent is None:
-            container.add_widget(self._preview_scroll)
+        container.add_widget(self.ids.content_scroll)
+        container.add_widget(self._split_divider)
+        container.add_widget(self._preview_scroll)
+        self._apply_split_ratios(is_typing=self.ids.content_field.focus)
+
+    def _apply_split_ratios(self, is_typing):
+        if self.view_mode != "split":
+            return
+        preview_ratio = self.SPLIT_PREVIEW_RATIO_COLLAPSED if is_typing else self.SPLIT_PREVIEW_RATIO_EXPANDED
+        self.ids.content_scroll.size_hint_y = 1 - preview_ratio
+        self._preview_scroll.size_hint_y = preview_ratio
+
+    def _on_split_focus_changed(self, field, is_focused):
+        self._apply_split_ratios(is_typing=is_focused)
+
+    def _on_split_text_changed(self, field, text):
+        if self.view_mode != "split":
+            return
+        # Debounced -- rebuilding the whole preview widget tree on
+        # every single keystroke would be wasteful and could visibly
+        # stutter typing. Same debounce-then-act idea as the undo
+        # history's own _history_debounce_event.
+        if self._split_preview_debounce_event:
+            self._split_preview_debounce_event.cancel()
+        self._split_preview_debounce_event = Clock.schedule_once(lambda dt: self._render_preview_content(), 0.6)
+
+    def cycle_view_mode(self):
+        order = ("edit", "split", "preview")
+        next_mode = order[(order.index(self.view_mode) + 1) % len(order)]
+        self.set_view_mode(next_mode)
+
+    def set_view_mode(self, mode):
+        self.view_mode = mode
+        self.is_preview = (mode != "edit")  # kept in sync for any older code still reading this
+        if mode == "edit":
+            self.show_edit_mode()
+        elif mode == "split":
+            self.show_split_mode()
+        else:
+            self.show_preview_mode()
+
+    def toggle_preview(self):
+        # Thin alias -- cycle_view_mode() is the real logic now
+        # (edit -> split -> preview -> edit), kept callable in case
+        # anything else in the codebase still calls .toggle_preview().
+        self.cycle_view_mode()
 
     def _open_image_fullscreen(self, image_path):
         # Tap anywhere to dismiss -- a single full-window Image,
@@ -461,6 +549,7 @@ class NoteEditorScreen(
         self.ids.title_field.text = ""
         self.ids.content_field.text = ""
         self.current_note_id = None
+        self.view_mode = "edit"
         self.is_preview = False
         self.manager.current = "notes"
 
@@ -522,8 +611,10 @@ class NoteEditorScreen(
         modal.open()
 
     def _refresh_preview_if_active(self):
-        if self.is_preview:
+        if self.view_mode == "preview":
             self.show_preview_mode()
+        elif self.view_mode == "split":
+            self._render_preview_content()
 
     def _on_content_focus(self, field, is_focused):
         if is_focused:
