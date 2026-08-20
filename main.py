@@ -33,18 +33,18 @@ from services.legal_store import has_agreed_to_version
 
 from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 
-# Tells Kivy to pan the app's visible area so whatever text field
-# currently has focus stays presented just above the on-screen
-# keyboard, instead of the keyboard covering it. Does nothing on
-# desktop (there's no real on-screen keyboard here to trigger it) --
-# this only takes effect once running on an actual Android device or
-# emulator.
-#
-# NOTE: this used to be 'resize', which -- confirmed via Kivy's docs
-# and the upstream PR that implemented this for SDL2/Android -- does
-# not work at all on that combination; it was a silent no-op. 'below_target'
-# is the mode that's actually implemented and functional there.
-Window.softinput_mode = 'below_target'
+# Left at the default ('') deliberately. 'below_target' (tried
+# previously) pans the window once when a field GAINS focus, but
+# doesn't keep re-adjusting as the cursor moves further down inside a
+# field that's already focused -- exactly the case that matters here
+# (typing continuously down a long note). That fought with
+# note_editor_screen.py's own ScrollView-based keyboard-avoidance
+# (which reads the REAL keyboard height via pyjnius, since
+# Window.keyboard_height always returns 0 with SDL2 on Android)
+# instead of cooperating with it. With this left at '', the app's own
+# scroll logic is the only thing moving content -- nothing left to
+# conflict with it.
+Window.softinput_mode = ''
 
 
 class RootLayout(MDBoxLayout):

@@ -6,6 +6,7 @@
 
 from kivy.clock import Clock
 from kivy.metrics import dp
+from kivy.utils import platform
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.modalview import ModalView
 from kivymd.uix.card import MDCard
@@ -14,7 +15,7 @@ from kivymd.uix.button import MDButton, MDButtonText
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, NumericProperty
 from kivymd.uix.screen import MDScreen
 from kivy.core.window import Window
 from screens.editor.formatting_toolbar import FormattingToolbar  # noqa: F401 -- registers the widget class with KV before app.kv loads it, same fix as the earlier DashboardTile "Unknown class" issue
@@ -44,6 +45,38 @@ from screens.editor.category_mixin import CategoryMixin, CategoryPillButton  # n
 from screens.editor.delete_mixin import DeleteConfirmationMixin
 
 
+def _get_android_keyboard_height():
+    """Real, live on-screen-keyboard height in pixels, read directly
+    from Android's own view hierarchy via pyjnius. Window.keyboard_height
+    is documented to always return 0 with SDL2 on Android, so this
+    bypasses that (non-functional, on this platform) Kivy property
+    entirely and asks Android itself -- a technique documented as a
+    working community workaround in Kivy's own issue tracker
+    (kivy/kivy#7338). Returns 0 on any non-Android platform, or
+    whenever the keyboard isn't actually showing.
+    """
+    if platform != "android":
+        return 0
+    try:
+        from jnius import autoclass  # type: ignore -- Android-only import
+        Rect = autoclass("android.graphics.Rect")
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        root_view = PythonActivity.mActivity.getWindow().getDecorView()
+        visible_frame = Rect()
+        root_view.getWindowVisibleDisplayFrame(visible_frame)
+        height_difference = root_view.getHeight() - visible_frame.bottom
+        # Small differences here are just system bar insets, not a
+        # real keyboard -- ignored so the field/spacer don't react to
+        # noise when the keyboard is actually closed.
+        return height_difference if height_difference > dp(50) else 0
+    except Exception as e:
+        # Never let a failure here crash the app mid-typing -- worst
+        # case, keyboard avoidance just skips this poll cycle. TEMP
+        # DEBUG print so a real failure is visible, instead of
+        # silently looking identical to "no keyboard open".
+        print(f"KEYBOARD_DEBUG read failed: {e}")
+        return 0
+
 
 class NoteEditorScreen(
     ThemedScreenMixin,
@@ -62,6 +95,11 @@ class NoteEditorScreen(
     is_preview = False
     show_search = BooleanProperty(False)
     is_compact = BooleanProperty(False)
+    # Real Android on-screen-keyboard height in pixels -- kept in sync
+    # with reality by _poll_keyboard_height() while content_field is
+    # focused. NOT the same as, and doesn't rely on, Kivy's own
+    # Window.keyboard_height (always 0 on this platform/backend).
+    keyboard_height = NumericProperty(0)
 
     # NOTE: every key below was checked against the actual ids in
     # app.kv's <NoteEditorScreen>: rule. header_bar/title_bar/
@@ -130,6 +168,12 @@ class NoteEditorScreen(
         # Text color state (TextColorMixin)
         self._pending_color_selection = None  # (kind, selected, start, end) or None -- kind is "edit" or "wrap"
         self._active_color_modal = None
+
+        # Real keyboard height polling (see _on_content_focus /
+        # _poll_keyboard_height / _get_android_keyboard_height) --
+        # holds the Clock event while content_field is focused, so it
+        # can be cancelled the instant focus is lost.
+        self._keyboard_poll_event = None
         # Snapshot of (title, content, font, size, align, category) at
         # the moment a note was loaded or last saved -- compared
         # against the live state to detect unsaved changes on exit.
@@ -139,19 +183,22 @@ class NoteEditorScreen(
         super().on_kv_post(base_widget)
         self.ids.content_field.bind(selection_text=self._track_selection)
         self.ids.content_field.bind(text=self._on_content_text_changed)
-        # Keyboard avoidance is now handled at the Window level via
-        # Window.softinput_mode = "below_target" (set in main.py) --
-        # Window.keyboard_height is documented to always return 0
-        # with SDL2 on Android, so the previous approach built on it
-        # never actually worked. What's left here just keeps the
-        # ScrollView itself scrolled to the cursor's row -- a plain
-        # layout-containment check, no keyboard math involved.
+
+        # Real keyboard height, polled via pyjnius while content_field
+        # is focused -- see _get_android_keyboard_height() above and
+        # _on_content_focus/_poll_keyboard_height below.
+        self.ids.content_field.bind(focus=self._on_content_focus)
+
         self.ids.content_field.bind(cursor_pos=self._scroll_to_cursor)
         # Retrigger once the field's own height actually settles --
         # TextInput recomputes minimum_height via its own internally
         # scheduled refresh, which can land a frame or two after
         # cursor_pos changes.
         self.ids.content_field.bind(height=self._scroll_to_cursor)
+        # ALSO retrigger whenever the real keyboard height changes
+        # (e.g. the keyboard finishes animating open) -- this can
+        # happen without cursor_pos changing at all.
+        self.bind(keyboard_height=self._scroll_to_cursor)
 
 
     def _current_snapshot(self):
@@ -430,6 +477,28 @@ class NoteEditorScreen(
         if self.is_preview:
             self.show_preview_mode()
 
+    def _on_content_focus(self, field, is_focused):
+        if is_focused:
+            if self._keyboard_poll_event is None:
+                self._keyboard_poll_event = Clock.schedule_interval(self._poll_keyboard_height, 0.15)
+        else:
+            if self._keyboard_poll_event is not None:
+                self._keyboard_poll_event.cancel()
+                self._keyboard_poll_event = None
+            self.keyboard_height = 0
+
+    def _poll_keyboard_height(self, dt):
+        new_height = _get_android_keyboard_height()
+        if new_height != self.keyboard_height:
+            # TEMP DEBUG -- remove once confirmed correct on device.
+            # Visible via `adb logcat` (filter for KEYBOARD_DEBUG).
+            # Separate tag from SCROLL_DEBUG on purpose -- lets us
+            # tell apart "the real height isn't being read correctly"
+            # from "the height's fine but the scroll math downstream
+            # of it is still off".
+            print(f"KEYBOARD_DEBUG height changed: {self.keyboard_height:.0f} -> {new_height:.0f}")
+            self.keyboard_height = new_height
+
     def _scroll_to_cursor(self, *args):
         # Runs one frame later, after the height changes above have
         # actually taken effect -- reading positions in the same
@@ -443,13 +512,15 @@ class NoteEditorScreen(
             return
 
         # Cursor position and the scroll viewport's OWN bottom edge,
-        # both converted to real window pixels via to_window() -- this
-        # reflects whatever transforms are active in the widget tree,
-        # including any panning from Window.softinput_mode, so it
-        # stays correct without needing to know the keyboard's height.
+        # both in real window pixels via to_window(). The REAL
+        # keyboard height (self.keyboard_height, kept live by
+        # _poll_keyboard_height) is then subtracted on top of that,
+        # since to_window() alone has no idea the keyboard is covering
+        # part of the screen -- softinput_mode is left at '' (main.py),
+        # so nothing else is doing that accounting for us.
         _, cursor_window_y = field.to_window(*field.cursor_pos)
         _, viewport_bottom_y = scroll_view.to_window(0, 0)
-        visible_bottom = viewport_bottom_y + dp(12)
+        visible_bottom = viewport_bottom_y + self.keyboard_height + dp(12)
 
         content_widget = scroll_view.children[0] if scroll_view.children else None
         content_height = content_widget.height if content_widget else scroll_view.height
@@ -457,8 +528,9 @@ class NoteEditorScreen(
         # TEMP DEBUG -- remove once scrolling is confirmed correct on
         # device. Visible via `adb logcat` (filter for SCROLL_DEBUG).
         print(f"SCROLL_DEBUG cursor_y={cursor_window_y:.0f} visible_bottom={visible_bottom:.0f} "
-              f"field_h={field.height:.0f} content_h={content_height:.0f} "
-              f"viewport_h={scroll_view.height:.0f} scroll_y={scroll_view.scroll_y:.3f}")
+              f"keyboard_h={self.keyboard_height:.0f} field_h={field.height:.0f} "
+              f"content_h={content_height:.0f} viewport_h={scroll_view.height:.0f} "
+              f"scroll_y={scroll_view.scroll_y:.3f}")
 
         if cursor_window_y >= visible_bottom:
             return  # Cursor is already visible -- nothing to do.

@@ -601,11 +601,10 @@
                                 multiline: True
                                 size_hint_x: 1
                                 size_hint_y: None
-                                # Was content_scroll.height - root.keyboard_height -- removed
-                                # the keyboard_height term since it's documented to always be 0
-                                # on Android/SDL2, so it never did anything. Keyboard avoidance
-                                # now happens at the Window level (see main.py).
-                                height: max(self.minimum_height, content_scroll.height)
+                                # root.keyboard_height is now REAL (polled via pyjnius in
+                                # note_editor_screen.py), not the always-0
+                                # Window.keyboard_height this used to depend on.
+                                height: max(self.minimum_height, content_scroll.height - root.keyboard_height)
                                 font_size: "16sp"
                                 hint_text: "Once upon a note..."
                                 background_normal: ""
@@ -615,13 +614,11 @@
                             Widget:
                                 id: keyboard_spacer
                                 size_hint_y: None
-                                # Small fixed bottom margin so the last line isn't flush
-                                # against the edge of the scrollable area. Used to be sized as
-                                # root.keyboard_height + dp(20) as a "guaranteed" keyboard
-                                # spacer, but keyboard_height always reads 0 on Android/SDL2,
-                                # so that never actually added meaningful room. Real keyboard
-                                # avoidance is now Window.softinput_mode = "below_target".
-                                height: dp(20)
+                                # Guarantees real, scrollable empty room equal to the
+                                # keyboard's ACTUAL height (root.keyboard_height is now read
+                                # live from Android via pyjnius) -- this is what actually
+                                # creates room to scroll later lines up above the keyboard.
+                                height: root.keyboard_height + dp(20)
 
 
 <FormattingToolbar>:
