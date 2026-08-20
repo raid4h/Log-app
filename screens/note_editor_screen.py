@@ -430,6 +430,12 @@ class NoteEditorScreen(
         if self.is_preview:
             self.show_preview_mode()
 
+    def _scroll_to_cursor(self, *args):
+        # Runs one frame later, after the height changes above have
+        # actually taken effect -- reading positions in the same
+        # frame as a layout change can use stale numbers.
+        Clock.schedule_once(self._do_scroll_to_cursor, 0)
+
     def _do_scroll_to_cursor(self, dt):
         scroll_view = self.ids.get("content_scroll")
         field = self.ids.get("content_field")
