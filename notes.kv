@@ -576,8 +576,15 @@
                 size_hint: 1, None
                 # Leaves room at the bottom for the floating toolbar
                 # only when it's actually floating there -- otherwise
-                # fills the whole body like before.
-                height: self.parent.height
+                # fills the whole body like before. ALSO shrinks by the
+                # real keyboard height, but ONLY in Split mode -- this
+                # is what keeps the preview pane (at the very bottom of
+                # this card) from ending up physically behind the
+                # on-screen keyboard. Edit/Preview modes deliberately
+                # don't shrink this (the term is 0 there) -- Edit
+                # mode's keyboard-avoidance is handled a different way,
+                # inside content_scroll (see content_field below).
+                height: self.parent.height - (root.keyboard_height if root.view_mode == "split" else 0)
                 pos_hint: {"x": 0, "top": 1}
                 padding: "20dp"
                 radius: [20, 20, 20, 20]
@@ -605,10 +612,12 @@
                                 multiline: True
                                 size_hint_x: 1
                                 size_hint_y: None
-                                # root.keyboard_height is now REAL (polled via pyjnius in
-                                # note_editor_screen.py), not the always-0
-                                # Window.keyboard_height this used to depend on.
-                                height: max(self.minimum_height, content_scroll.height - root.keyboard_height)
+                                # Only subtracts keyboard_height in single Edit mode -- in
+                                # Split mode, content_card ITSELF already shrinks by
+                                # keyboard_height (above), so content_scroll's viewport is
+                                # already positioned above the keyboard. Subtracting again
+                                # here would double-shrink the field.
+                                height: max(self.minimum_height, content_scroll.height - (root.keyboard_height if root.view_mode == "edit" else 0))
                                 font_size: "16sp"
                                 hint_text: "Once upon a note..."
                                 background_normal: ""
@@ -618,11 +627,14 @@
                             Widget:
                                 id: keyboard_spacer
                                 size_hint_y: None
-                                # Guarantees real, scrollable empty room equal to the
-                                # keyboard's ACTUAL height (root.keyboard_height is now read
-                                # live from Android via pyjnius) -- this is what actually
-                                # creates room to scroll later lines up above the keyboard.
-                                height: root.keyboard_height + dp(20)
+                                # Only needs to be keyboard-sized in single Edit mode, where
+                                # content_scroll's viewport spans the FULL, unshrunk screen --
+                                # the extra scrollable room is what reveals text above the
+                                # keyboard there. In Split mode content_card already shrinks
+                                # by keyboard_height, so this being keyboard-sized too was
+                                # exactly the bug: it ate almost the entire edit pane as one
+                                # big blank gap.
+                                height: (root.keyboard_height + dp(20)) if root.view_mode == "edit" else dp(20)
 
 
 <FormattingToolbar>:

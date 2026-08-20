@@ -659,14 +659,19 @@ class NoteEditorScreen(
         # so nothing else is doing that accounting for us.
         _, cursor_window_y = field.to_window(*field.cursor_pos)
         _, viewport_bottom_y = scroll_view.to_window(0, 0)
-        visible_bottom = viewport_bottom_y + self.keyboard_height + dp(12)
+        # Only add keyboard_height in single Edit mode. In Split mode,
+        # content_card already shrinks by keyboard_height (.kv file),
+        # so viewport_bottom_y is ALREADY above the keyboard -- adding
+        # it again here would double-compensate.
+        extra_keyboard_margin = self.keyboard_height if self.view_mode == "edit" else 0
+        visible_bottom = viewport_bottom_y + extra_keyboard_margin + dp(12)
 
         content_widget = scroll_view.children[0] if scroll_view.children else None
         content_height = content_widget.height if content_widget else scroll_view.height
 
         # TEMP DEBUG -- remove once scrolling is confirmed correct on
         # device. Visible via `adb logcat` (filter for SCROLL_DEBUG).
-        print(f"SCROLL_DEBUG cursor_y={cursor_window_y:.0f} visible_bottom={visible_bottom:.0f} "
+        print(f"SCROLL_DEBUG mode={self.view_mode} cursor_y={cursor_window_y:.0f} visible_bottom={visible_bottom:.0f} "
               f"keyboard_h={self.keyboard_height:.0f} field_h={field.height:.0f} "
               f"content_h={content_height:.0f} viewport_h={scroll_view.height:.0f} "
               f"scroll_y={scroll_view.scroll_y:.3f}")
