@@ -15,6 +15,7 @@ from kivymd.uix.button import MDButton, MDButtonText
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
 from kivy.uix.label import Label
+from kivy.uix.behaviors import ButtonBehavior
 from kivy.properties import BooleanProperty, NumericProperty
 from kivymd.uix.screen import MDScreen
 from kivy.core.window import Window
@@ -44,6 +45,12 @@ from screens.editor.delete_mixin import DeleteConfirmationMixin
 from screens.editor.category_mixin import CategoryMixin, CategoryPillButton  # noqa: F401
 from screens.editor.delete_mixin import DeleteConfirmationMixin
 
+class TappableImage(ButtonBehavior, Image):
+    """A Preview-mode note image that opens full-screen when tapped.
+    ButtonBehavior + Image is safe here -- unlike ButtonBehavior +
+    MDCard, which hits a real MRO TypeError (see project bug notes),
+    Image isn't an MDCard subclass, so no conflict."""
+    pass
 
 def _get_android_keyboard_height():
     """Real, live on-screen-keyboard height in pixels, read directly
@@ -351,10 +358,16 @@ class NoteEditorScreen(
                 else:
                     img_pos_hint = {"x": 0}
 
-                img = Image(
+                img = TappableImage(
                     source=part, size_hint=(None, None), size=(dp(220), dp(220)),
                     pos_hint=img_pos_hint, allow_stretch=True,
                 )
+                # Captured as a default arg (p=part), not a direct
+                # closure over the loop variable -- part changes each
+                # iteration, so a plain closure would make every
+                # image's tap handler open whichever image happened
+                # to be LAST in the note.
+                img.bind(on_release=lambda inst, p=part: self._open_image_fullscreen(p))
                 self._preview_content.add_widget(img)
             elif part.strip():
                 label = Label(
@@ -375,6 +388,21 @@ class NoteEditorScreen(
             container.remove_widget(self.ids.content_scroll)
         if self._preview_scroll.parent is None:
             container.add_widget(self._preview_scroll)
+
+    def _open_image_fullscreen(self, image_path):
+        # Tap anywhere to dismiss -- a single full-window Image,
+        # keep_ratio=True so photos of any aspect ratio don't distort.
+        modal = ModalView(
+            size_hint=(1, 1), auto_dismiss=False,
+            background_color=(0, 0, 0, 0.95),
+        )
+        fullscreen_img = Image(
+            source=image_path, size_hint=(1, 1),
+            allow_stretch=True, keep_ratio=True,
+        )
+        modal.add_widget(fullscreen_img)
+        modal.bind(on_touch_down=lambda inst, touch: modal.dismiss())
+        modal.open()
 
     def save_note(self):
         title = self.ids.title_field.text.strip()
