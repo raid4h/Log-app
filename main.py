@@ -33,13 +33,18 @@ from services.legal_store import has_agreed_to_version
 
 from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 
-# Tells Kivy to automatically resize the app's visible area so whatever
-# text field currently has focus stays visible above the on-screen
+# Tells Kivy to pan the app's visible area so whatever text field
+# currently has focus stays presented just above the on-screen
 # keyboard, instead of the keyboard covering it. Does nothing on
 # desktop (there's no real on-screen keyboard here to trigger it) --
 # this only takes effect once running on an actual Android device or
 # emulator.
-Window.softinput_mode = 'resize'
+#
+# NOTE: this used to be 'resize', which -- confirmed via Kivy's docs
+# and the upstream PR that implemented this for SDL2/Android -- does
+# not work at all on that combination; it was a silent no-op. 'below_target'
+# is the mode that's actually implemented and functional there.
+Window.softinput_mode = 'below_target'
 
 
 class RootLayout(MDBoxLayout):

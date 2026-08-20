@@ -601,7 +601,11 @@
                                 multiline: True
                                 size_hint_x: 1
                                 size_hint_y: None
-                                height: max(self.minimum_height, content_scroll.height - root.keyboard_height)
+                                # Was content_scroll.height - root.keyboard_height -- removed
+                                # the keyboard_height term since it's documented to always be 0
+                                # on Android/SDL2, so it never did anything. Keyboard avoidance
+                                # now happens at the Window level (see main.py).
+                                height: max(self.minimum_height, content_scroll.height)
                                 font_size: "16sp"
                                 hint_text: "Once upon a note..."
                                 background_normal: ""
@@ -611,14 +615,13 @@
                             Widget:
                                 id: keyboard_spacer
                                 size_hint_y: None
-                                # Guarantees real, scrollable empty
-                                # room equal to the keyboard's height
-                                # -- this part cannot fail regardless
-                                # of note length or cursor math, since
-                                # it just mechanically creates the
-                                # space needed to scroll past the
-                                # keyboard.
-                                height: root.keyboard_height + dp(20)
+                                # Small fixed bottom margin so the last line isn't flush
+                                # against the edge of the scrollable area. Used to be sized as
+                                # root.keyboard_height + dp(20) as a "guaranteed" keyboard
+                                # spacer, but keyboard_height always reads 0 on Android/SDL2,
+                                # so that never actually added meaningful room. Real keyboard
+                                # avoidance is now Window.softinput_mode = "below_target".
+                                height: dp(20)
 
 
 <FormattingToolbar>:
