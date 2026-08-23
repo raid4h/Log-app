@@ -30,10 +30,11 @@ from kivy.uix.popup import Popup
 from kivy.properties import NumericProperty
 from kivy.metrics import dp, sp
 from kivy.utils import get_color_from_hex
+from kivy.clock import Clock
 
 from theme.theme_manager import theme_manager
 from theme.themed_screen import ThemedScreenMixin
-from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_PRIMARY, ACCENT, BORDER
+from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_PRIMARY, ACCENT, BORDER, BUTTON, BUTTON_TEXT
 
 from widgets.checklist_item import ChecklistItem  # noqa: F401
 
@@ -52,6 +53,52 @@ from screens.editor.calculator import process_calculator_lines, format_calculate
 
 def theme_rgba(token):
     return get_color_from_hex(theme_manager.get_color(token))
+
+
+def _build_themed_button(text, style, bg_token, text_token):
+    """
+    Builds one MDButton + MDButtonText with its fill/text color set at
+    CONSTRUCTION time -- confirmed on-device (timer_screen.py's Focus
+    Timer Settings dialog) that setting an MDButton's md_bg_color
+    AFTER construction can get silently reverted to KivyMD's Material
+    default on some later frame, for style="filled"/"tonal" buttons
+    specifically. Setting it as a constructor kwarg instead avoids
+    that for the vast majority of cases; the caller is still
+    responsible for scheduling a delayed re-apply (see
+    _apply_popup_button_colors below) as a safety net, same pattern
+    used there.
+    """
+    button_text = MDButtonText(
+        text=text,
+        theme_text_color="Custom",
+        text_color=theme_manager.get_color(text_token),
+    )
+    button = MDButton(
+        button_text,
+        style=style,
+        theme_bg_color="Custom",
+        md_bg_color=theme_manager.get_color(bg_token),
+    )
+    button._theme_bg_token = bg_token
+    button._theme_text_token = text_token
+    button._theme_text_widget = button_text
+    return button
+
+
+def _apply_popup_button_colors(*buttons):
+    """
+    Safety-net re-apply, called once immediately and once shortly
+    after the popup opens -- same reasoning as timer_screen.py's
+    dialog: style-driven MDButton fill colors have been observed to
+    revert to Material defaults on a later frame even when set at
+    construction, so the last write needs to happen after that frame
+    has passed, not before it.
+    """
+    for button in buttons:
+        button.md_bg_color = theme_manager.get_color(button._theme_bg_token)
+        button.theme_bg_color = "Custom"
+        button._theme_text_widget.text_color = theme_manager.get_color(button._theme_text_token)
+        button._theme_text_widget.theme_text_color = "Custom"
 
 
 PRIORITY_OPTIONS = ("Low", "Medium", "High")
@@ -75,7 +122,17 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
     }
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        # These must be set BEFORE super().__init__(**kwargs), not
+        # after. Kivy applies this screen's .kv rules and fires
+        # on_kv_post from *inside* the super().__init__() call --
+        # and ThemedScreenMixin's on_theme_applied (which reads
+        # self._total_label) can be triggered from there, before
+        # control ever returns to the rest of this method. Setting
+        # these after super().__init__() meant on_theme_applied could
+        # run against an object that didn't have _total_label at all
+        # yet -- caught silently by ThemedScreenMixin's error
+        # handling, but meaning the screen's initial theme never
+        # actually got applied.
         self._checked_expanded = False
         # Not a KV id (no KV changes for this feature) -- built once,
         # in code, and inserted under subtitle_label the same way
@@ -83,14 +140,19 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         # Python rather than in .kv. THEME_MAP can't reach it since
         # it has no id, so on_theme_applied below colors it by hand.
         self._total_label = None
+        super().__init__(**kwargs)
 
     def on_pre_enter(self, *args):
         self._checked_expanded = False
         self.load_checklist()
 
     def on_theme_applied(self):
-        if self._total_label is not None:
-            self._total_label.color = theme_rgba(TEXT_PRIMARY)
+        # getattr as a second safety net -- see the ordering note in
+        # __init__ above for why this could otherwise be called
+        # before _total_label exists.
+        total_label = getattr(self, "_total_label", None)
+        if total_label is not None:
+            total_label.color = theme_rgba(TEXT_PRIMARY)
 
     def go_back(self):
         self.manager.current = "checklist"
@@ -400,12 +462,21 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             multiline=False,
             size_hint_y=None,
             height=dp(46),
+            background_color=theme_rgba(BACKGROUND),
+            foreground_color=theme_rgba(TEXT_PRIMARY),
+            cursor_color=theme_rgba(ACCENT),
         )
         panel.add_widget(title_input)
 
         priority_state = {"value": checklist["priority"]}
-        priority_btn = MDButton(style="tonal", size_hint_y=None, height=dp(44))
-        priority_btn.add_widget(MDButtonText(text=priority_state["value"] or "+ Priority (optional)"))
+        priority_btn = _build_themed_button(
+            priority_state["value"] or "+ Priority (optional)",
+            style="tonal",
+            bg_token=BORDER,
+            text_token=TEXT_PRIMARY,
+        )
+        priority_btn.size_hint_y = None
+        priority_btn.height = dp(44)
         panel.add_widget(priority_btn)
 
         actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(8))
@@ -422,19 +493,34 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         )
 
         def set_priority_label():
+            # Rebuilds the button's text widget (same approach the
+            # original code used) -- has to re-register it as
+            # priority_btn._theme_text_widget too, or a later
+            # _apply_popup_button_colors() call would still be
+            # pointing at the OLD (now-discarded) text widget instead
+            # of this new one.
+            new_text = MDButtonText(
+                text=priority_state["value"] or "+ Priority (optional)",
+                theme_text_color="Custom",
+                text_color=theme_manager.get_color(TEXT_PRIMARY),
+            )
             priority_btn.clear_widgets()
-            priority_btn.add_widget(MDButtonText(text=priority_state["value"] or "+ Priority (optional)"))
+            priority_btn.add_widget(new_text)
+            priority_btn._theme_text_widget = new_text
 
         priority_btn.bind(
             on_release=lambda *_a: self._open_inline_priority_picker(priority_state, set_priority_label)
         )
 
-        cancel_btn = MDButton(style="tonal", on_release=lambda *_a: popup.dismiss())
-        cancel_btn.add_widget(MDButtonText(text="Cancel"))
+        cancel_btn = _build_themed_button(
+            "Cancel", style="tonal", bg_token=BORDER, text_token=TEXT_PRIMARY
+        )
+        cancel_btn.bind(on_release=lambda *_a: popup.dismiss())
         actions.add_widget(cancel_btn)
 
-        save_btn = MDButton(style="filled")
-        save_btn.add_widget(MDButtonText(text="Save"))
+        save_btn = _build_themed_button(
+            "Save", style="filled", bg_token=BUTTON, text_token=BUTTON_TEXT
+        )
         actions.add_widget(save_btn)
 
         def do_save(*_args):
@@ -450,6 +536,15 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         save_btn.bind(on_release=do_save)
         panel.add_widget(actions)
         popup.open()
+
+        # Safety-net re-apply -- see _apply_popup_button_colors
+        # docstring. priority_btn isn't included here since its text
+        # widget gets swapped out by set_priority_label() and this
+        # runs before the user could have triggered that anyway.
+        _apply_popup_button_colors(cancel_btn, save_btn)
+        Clock.schedule_once(
+            lambda dt: _apply_popup_button_colors(cancel_btn, save_btn, priority_btn), 0.3
+        )
 
     def _open_inline_priority_picker(self, priority_state, on_chosen):
         panel = MDCard(
@@ -473,13 +568,19 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             on_chosen()
             inner_popup.dismiss()
 
-        none_btn = MDButton(style="tonal", on_release=lambda *_a: choose(""))
-        none_btn.add_widget(MDButtonText(text="No priority"))
+        picker_buttons = []
+
+        none_btn = _build_themed_button("No priority", style="tonal", bg_token=BORDER, text_token=TEXT_PRIMARY)
+        none_btn.bind(on_release=lambda *_a: choose(""))
         panel.add_widget(none_btn)
+        picker_buttons.append(none_btn)
 
         for value in PRIORITY_OPTIONS:
-            btn = MDButton(style="tonal", on_release=lambda *_a, v=value: choose(v))
-            btn.add_widget(MDButtonText(text=value))
+            btn = _build_themed_button(value, style="tonal", bg_token=BORDER, text_token=TEXT_PRIMARY)
+            btn.bind(on_release=lambda *_a, v=value: choose(v))
             panel.add_widget(btn)
+            picker_buttons.append(btn)
 
         inner_popup.open()
+        _apply_popup_button_colors(*picker_buttons)
+        Clock.schedule_once(lambda dt: _apply_popup_button_colors(*picker_buttons), 0.3)

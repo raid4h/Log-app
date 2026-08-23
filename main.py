@@ -27,6 +27,7 @@ from screens.terms_screen import TermsScreen
 from screens.privacy_policy_screen import PrivacyPolicyScreen
 from services.notification_service import collect_due_notifications, send_system_notification
 from kivy.clock import Clock
+from kivy.utils import platform
 
 from legal_content import TERMS_VERSION
 from services.legal_store import has_agreed_to_version
@@ -45,6 +46,39 @@ from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
 # scroll logic is the only thing moving content -- nothing left to
 # conflict with it.
 Window.softinput_mode = ''
+
+
+def _request_android_notification_permission():
+    """
+    buildozer.spec declaring POST_NOTIFICATIONS in android.permissions
+    only adds it to the manifest -- on Android 13+ (API 33+) it's a
+    "dangerous" runtime permission, same category as camera or
+    location, and the app has to explicitly ask the user to grant it
+    or it stays denied forever. Without this, plyer's
+    notification.notify() (see services/notification_service.py)
+    raises internally on every call, which send_system_notification's
+    broad except swallows silently -- so reminders would just never
+    appear, on any Android 13+ device, with no visible error anywhere.
+
+    Guarded behind platform == "android" since the `android.permissions`
+    module doesn't exist on desktop and would break `python main.py`
+    during normal dev/testing on Windows otherwise. The inner
+    try/except is defensive for older Android builds where the
+    Permission.POST_NOTIFICATIONS constant may not exist (added
+    alongside the API 33 runtime-permission requirement itself).
+    """
+    if platform != "android":
+        return
+    try:
+        from android.permissions import (
+            request_permissions,
+            check_permission,
+            Permission,
+        )
+        if not check_permission(Permission.POST_NOTIFICATIONS):
+            request_permissions([Permission.POST_NOTIFICATIONS])
+    except Exception:
+        pass
 
 
 class RootLayout(MDBoxLayout):
@@ -68,6 +102,7 @@ class RootLayout(MDBoxLayout):
 
 class LogApp(MDApp):
     def build(self):
+        _request_android_notification_permission()
         create_tables()
         create_calendar_events_table()
         # Must run after create_tables() (so the database file
@@ -132,7 +167,42 @@ class LogApp(MDApp):
         self.sm.bind(current=self._on_screen_changed)
         self._update_nav_visibility(self.sm.current)
         Clock.schedule_interval(self._check_notifications, 30)
+
+        # Shared back-navigation stack. Every screen that navigates
+        # forward should call app.go_to_screen(name) instead of
+        # setting app.root.current directly, so this stays accurate.
+        # Both the hardware back key and any in-app back button
+        # should call app.go_back() so behavior stays consistent.
+        self.screen_history = []
+        Window.bind(on_keyboard=self.on_key)
+
         return root
+
+    def go_to_screen(self, screen_name):
+        """Navigate forward and remember where we came from.
+        Use this instead of app.root.current = 'x' anywhere the app
+        navigates to a new screen."""
+        current = self.root.current
+        if current != screen_name:
+            self.screen_history.append(current)
+            self.root.current = screen_name
+
+    def go_back(self):
+        """Pop the last screen off the stack and go there. Returns
+        True if it navigated, False if the stack was empty (caller
+        can then decide to exit the app)."""
+        if self.screen_history:
+            self.root.current = self.screen_history.pop()
+            return True
+        return False
+
+    def on_key(self, window, key, *args):
+        """Intercepts the hardware/gesture back button. Returning
+        True consumes the event so Android doesn't fall through to
+        its default (which otherwise backgrounds/exits the app)."""
+        if key == 27:  # Android back
+            return self.go_back()
+        return False
 
     def _on_screen_changed(self, instance, value):
         self._update_nav_visibility(value)
@@ -199,11 +269,14 @@ class LogApp(MDApp):
                 icon_color=theme_manager.get_color(TEXT_PRIMARY),
                 size_hint=(None, None),
                 size=(dp(42), dp(38)),
-                on_release=lambda x: setattr(
-                    self.sm,
-                    "current",
-                    screen_name
-                ),
+                # FIX: was setattr(self.sm, "current", screen_name),
+                # which set sm.current directly and never touched
+                # self.screen_history. That's why Back from a screen
+                # reached via the bottom nav had an empty stack and
+                # fell through to Android's default exit-app behavior.
+                # go_to_screen() pushes the outgoing screen first, so
+                # go_back() / the hardware back key can pop it later.
+                on_release=lambda x, s=screen_name: self.go_to_screen(s),
             )
 
             icon_box.add_widget(btn)

@@ -23,6 +23,9 @@ from theme.palettes import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
     BUTTON,
+    BUTTON_TEXT,
+    CARD_SECONDARY,
+    BORDER,
 )
 
 
@@ -291,45 +294,40 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
 
     # ── timer settings dialog ──
 
+    def _make_settings_field(self, hint_text):
+        """
+        Builds one Mins/Secs input for the settings dialog.
+
+        theme_line_color="Custom" is required for line_color_normal /
+        line_color_focus (set in _apply_dialog_theme) to actually take
+        effect -- without it the field ignores those and falls back to
+        KivyMD's own Material line color, same root cause as the rest
+        of this dialog.
+
+        foreground_color is inherited straight from Kivy's TextInput
+        (MDTextField's base class), not a KivyMD-versioned property,
+        so it's set here directly rather than in the theme refresh --
+        stable across KivyMD API changes.
+        """
+        return MDTextField(
+            mode="outlined",
+            size_hint_x=None,
+            width="95dp",
+            size_hint_y=None,
+            height="48dp",
+            hint_text=hint_text,
+            theme_line_color="Custom",
+            foreground_color=theme_manager.get_color(TEXT_PRIMARY),
+        )
+
     def open_timer_dialog(self):
 
         if self.dialog is None:
 
-            self.minutes_field = MDTextField(
-                mode="outlined",
-                size_hint_x=None,
-                width="95dp",
-                size_hint_y=None,
-                height="48dp",
-                hint_text="Mins",
-            )
-
-            self.seconds_field = MDTextField(
-                mode="outlined",
-                size_hint_x=None,
-                width="95dp",
-                size_hint_y=None,
-                height="48dp",
-                hint_text="Secs",
-            )
-
-            self.break_minutes_field = MDTextField(
-                mode="outlined",
-                size_hint_x=None,
-                width="95dp",
-                size_hint_y=None,
-                height="48dp",
-                hint_text="Mins",
-            )
-
-            self.break_seconds_field = MDTextField(
-                mode="outlined",
-                size_hint_x=None,
-                width="95dp",
-                size_hint_y=None,
-                height="48dp",
-                hint_text="Secs",
-            )
+            self.minutes_field = self._make_settings_field("Mins")
+            self.seconds_field = self._make_settings_field("Secs")
+            self.break_minutes_field = self._make_settings_field("Mins")
+            self.break_seconds_field = self._make_settings_field("Secs")
 
             focus_row = MDBoxLayout(
                 orientation="horizontal",
@@ -353,23 +351,42 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             break_row.add_widget(self.break_minutes_field)
             break_row.add_widget(self.break_seconds_field)
 
+            self.dialog_focus_heading = MDDialogHeadlineText(
+                text="Set Focus Time"
+            )
+            self.dialog_break_heading = MDDialogHeadlineText(
+                text="Set Break Time"
+            )
+            self.dialog_title = MDDialogHeadlineText(
+                text="Pomodoro Settings"
+            )
+
+            self.dialog_cancel_text = MDButtonText(text="Cancel")
+            self.dialog_set_text = MDButtonText(text="Set")
+
+            self.dialog_cancel_button = MDButton(
+                self.dialog_cancel_text,
+                style="tonal",
+                on_release=lambda x: self.dialog.dismiss(),
+            )
+
+            self.dialog_set_button = MDButton(
+                self.dialog_set_text,
+                style="filled",
+                on_release=self.apply_timer,
+            )
+
             self.dialog = MDDialog(
 
-                MDDialogHeadlineText(
-                    text="Pomodoro Settings"
-                ),
+                self.dialog_title,
 
                 MDDialogContentContainer(
 
-                    MDDialogHeadlineText(
-                        text="Set Focus Time"
-                    ),
+                    self.dialog_focus_heading,
 
                     focus_row,
 
-                    MDDialogHeadlineText(
-                        text="Set Break Time"
-                    ),
+                    self.dialog_break_heading,
 
                     break_row,
 
@@ -377,21 +394,113 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
                 ),
 
                 MDDialogButtonContainer(
-
-                    MDButton(
-                        MDButtonText(text="Cancel"),
-                        on_release=lambda x: self.dialog.dismiss(),
-                    ),
-
-                    MDButton(
-                        MDButtonText(text="Set"),
-                        style="filled",
-                        on_release=self.apply_timer,
-                    ),
+                    self.dialog_cancel_button,
+                    self.dialog_set_button,
+                    spacing="12dp",
                 ),
             )
 
+            self.dialog.bind(on_dismiss=self._on_dialog_dismissed)
+
+        self._apply_dialog_theme()
+        theme_manager.bind(theme_name=self._on_theme_name_changed)
         self.dialog.open()
+
+        # WORKAROUND: MDDialog's surface color and MDButton's
+        # style="filled" background both reverted to KivyMD's Material
+        # defaults on-device even though _apply_dialog_theme() above
+        # set them correctly -- text fields and headline text (which
+        # don't have this style-driven auto-recolor behavior) kept
+        # our colors fine. This points to KivyMD re-applying its own
+        # theme_cls-derived color internally on some later frame (seen
+        # in KivyMD's own issue tracker for MDButton specifically --
+        # style-driven widgets recompute their color and can overwrite
+        # an externally-set one). Re-applying again shortly after
+        # .open() makes our colors the LAST write instead of getting
+        # silently reverted. If this still doesn't stick, the KivyMD
+        # version in use may need a different override mechanism
+        # entirely (e.g. a custom style/theme_cls subclass) rather
+        # than a per-widget color assignment -- worth flagging if so.
+        Clock.schedule_once(lambda dt: self._apply_dialog_theme(), 0.3)
+
+    def _on_theme_name_changed(self, *args):
+        self._apply_dialog_theme()
+
+    def _on_dialog_dismissed(self, *args):
+        # Stops _apply_dialog_theme() from re-running on every future
+        # theme switch for the rest of the app session -- it only
+        # needs to happen while this dialog is actually visible.
+        # Binding once in open_timer_dialog() and never unbinding
+        # meant every subsequent theme change kept re-coloring a
+        # closed, invisible dialog for no reason -- real overhead on
+        # every single switch, forever, after just one dialog open.
+        theme_manager.unbind(theme_name=self._on_theme_name_changed)
+
+    def _apply_dialog_theme(self, *args):
+        """
+        Themes the Focus Timer Settings dialog, since MDDialog and its
+        children default to KivyMD's own Material colors otherwise --
+        that mismatch (not a bug in the color VALUES) is what made it
+        clash with the retro theme regardless of which theme was
+        active. Bound to theme_manager.theme_name in open_timer_dialog
+        so switching themes re-colors an already-open/already-built
+        dialog instead of only applying once at creation.
+
+        CARD_SECONDARY + BORDER give the dialog a surface distinct
+        from the screen behind it -- previously nothing did, since
+        card_primary/card_secondary/background all sit close together
+        in every palette and the dialog wasn't using any of them.
+        """
+        if self.dialog is None:
+            return
+
+        surface = theme_manager.get_color(CARD_SECONDARY)
+        border = theme_manager.get_color(BORDER)
+        text_primary = theme_manager.get_color(TEXT_PRIMARY)
+        text_secondary = theme_manager.get_color(TEXT_SECONDARY)
+        button_color = theme_manager.get_color(BUTTON)
+        button_text_color = theme_manager.get_color(BUTTON_TEXT)
+
+        # IMPORTANT: the actual color value is assigned BEFORE the
+        # matching theme_*_color = "Custom" flag on every widget below
+        # -- not after. Several KivyMD 2.x widgets (confirmed on
+        # MDDialogHeadlineText) default their color property to None,
+        # and setting theme_*_color = "Custom" triggers an immediate
+        # internal re-apply that reads whatever the color property
+        # currently holds right then. Flip the order and it crashes
+        # the very first time this runs -- "None is not allowed for
+        # <Widget>.color" -- since no real color has been assigned yet.
+
+        self.dialog.md_bg_color = surface
+        self.dialog.theme_bg_color = "Custom"
+        self.dialog.line_color = border
+
+        for heading in (
+            self.dialog_title,
+            self.dialog_focus_heading,
+            self.dialog_break_heading,
+        ):
+            heading.text_color = text_primary
+            heading.theme_text_color = "Custom"
+
+        for field in (
+            self.minutes_field,
+            self.seconds_field,
+            self.break_minutes_field,
+            self.break_seconds_field,
+        ):
+            field.line_color_normal = text_secondary
+            field.line_color_focus = button_color
+
+        self.dialog_cancel_button.md_bg_color = border
+        self.dialog_cancel_button.theme_bg_color = "Custom"
+        self.dialog_cancel_text.text_color = text_primary
+        self.dialog_cancel_text.theme_text_color = "Custom"
+
+        self.dialog_set_button.md_bg_color = button_color
+        self.dialog_set_button.theme_bg_color = "Custom"
+        self.dialog_set_text.text_color = button_text_color
+        self.dialog_set_text.theme_text_color = "Custom"
 
     def apply_timer(self, *args):
 

@@ -41,7 +41,7 @@ version = 0.1
 # python-for-android recipe and breaks Android builds entirely
 # (see kivymd/KivyMD#1842) -- pinning to 2.0.0 avoids that dependency.
 # Keep this in sync with requirements.txt at the repo root.
-requirements = python3,kivy==2.3.1,kivymd==2.0.0,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0
+requirements = python3,kivy==2.3.1,kivymd==2.0.0,pillow==10.4.0,materialyoucolor==3.0.3,asynckivy==0.6.4,asyncgui==0.6.3,plyer==2.1.0,requests==2.31.0,androidstorage4kivy
 
 # (str) Presplash of the application
 # TODO(design): add assets/presplash.png (recommended 2048x2048, will be

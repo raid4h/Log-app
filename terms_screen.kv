@@ -89,7 +89,14 @@
                 id: agree_button
                 style: "filled"
                 size_hint_x: 1
-                disabled: True
+                # FIX: was `disabled: True` toggled via
+                # on_checkbox_toggled. Toggling MDButton.disabled off
+                # and back on was intermittently swallowing the first
+                # tap(s) after re-enabling. agree() in the .py already
+                # guards on agree_checkbox.active, so disabled was
+                # redundant for correctness -- this now just dims the
+                # button visually while leaving it always touchable.
+                opacity: 1 if agree_checkbox.active else 0.5
                 on_release: root.agree()
 
                 MDButtonText:
