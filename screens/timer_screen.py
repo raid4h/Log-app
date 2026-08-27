@@ -341,27 +341,28 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
 
     # ── timer settings popup ──
     #
-    # Each duration row's minutes/seconds are now independently
-    # tappable via _UnitSegment -- tapping one selects it (soft
-    # accent-tinted highlight), and the -/+ buttons then adjust ONLY
-    # whichever unit is currently selected: 60s per tap for minutes,
-    # 1s per tap for seconds. The underlying value stays a single
-    # total_seconds integer -- divmod() already correctly carries
-    # across the minute/second boundary in either direction, so no
-    # extra wraparound logic is needed. apply_timer() is unchanged:
-    # it still calls timer.set_work_duration(minutes, seconds).
+    # Each duration row's minutes/seconds are independently tappable
+    # via _UnitSegment -- tapping one selects it, and the -/+ buttons
+    # then adjust ONLY whichever unit is currently selected. The
+    # underlying value stays a single total_seconds integer -- divmod()
+    # already correctly carries across the minute/second boundary in
+    # either direction. apply_timer() is unchanged: it still calls
+    # timer.set_work_duration(minutes, seconds).
+    #
+    # MIN_DURATION_SECONDS is only a floor against a literal
+    # zero-length session (which would complete instantly) -- there is
+    # deliberately NO "must be at least 1 minute" restriction, so
+    # 0 min : a few sec is a valid duration. MAX_DURATION_SECONDS caps
+    # the upper end only, per spec ("threshold on the upper value, not
+    # the least value") -- 60 minutes + up to 59 extra seconds.
 
-    MIN_DURATION_SECONDS = 60  # never allow a session to hit 0
-    MAX_DURATION_SECONDS = 180 * 60
+    MIN_DURATION_SECONDS = 1
+    MAX_DURATION_SECONDS = (60 * 60) + 59
 
     def _clamp_duration(self, total_seconds):
         return max(self.MIN_DURATION_SECONDS, min(total_seconds, self.MAX_DURATION_SECONDS))
 
     def _sync_stepper_from_timer(self):
-        # Re-reads the timer's ACTUAL current durations every time the
-        # dialog opens -- otherwise a second visit would keep showing
-        # the very first values. Unit selection resets to "minutes"
-        # each open, for predictable starting behavior.
         self._work_total_seconds = self.timer.work_duration
         self._break_total_seconds = self.timer.break_duration
         self._work_unit_state["selected"] = "minutes"
@@ -399,12 +400,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             self._update_break_labels()
 
     def _refresh_unit_selection(self, kind):
-        """
-        Recolors both segments in a row based on which unit is
-        currently selected -- called on tap, and again on every theme
-        switch (from _apply_popup_theme) so the highlight color stays
-        correct if the theme changes while the popup is open.
-        """
         if kind == "work":
             unit_state = self._work_unit_state
             minutes_segment = self._work_minutes_segment
@@ -461,11 +456,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
         return row
 
     def _build_duration_row(self, kind):
-        """
-        kind: "work" or "break". Builds a row with two independently
-        tappable segments (minutes, seconds) plus shared -/+ buttons
-        that adjust whichever segment is currently selected.
-        """
         unit_state = {"selected": "minutes"}
         if kind == "work":
             self._work_unit_state = unit_state
@@ -526,37 +516,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
 
         return row
 
-    def _build_tip_banner(self):
-        banner = MDCard(
-            orientation="horizontal",
-            theme_bg_color="Custom",
-            padding=[dp(12), dp(8)],
-            spacing=dp(10),
-            radius=[16],
-            elevation=0,
-            size_hint_y=None,
-            height=dp(56),
-        )
-        self._popup_theme_refs.append(("soft_bg", banner))
-
-        icon = MDIconButton(
-            icon="star-four-points-outline", theme_icon_color="Custom", disabled=True,
-            size_hint=(None, None), size=(dp(22), dp(22)),
-            pos_hint={"center_y": 0.5},
-        )
-        self._popup_theme_refs.append(("icon_accent", icon))
-        banner.add_widget(icon)
-
-        label = Label(
-            text="Tap minutes or seconds to choose what -/+ adjusts.",
-            font_size=sp(12), halign="left", valign="middle", size_hint_x=1,
-        )
-        label.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
-        self._popup_theme_refs.append(("label_secondary", label))
-        banner.add_widget(label)
-
-        return banner
-
     def _build_timer_settings_popup(self):
         self._popup_theme_refs = []
 
@@ -613,9 +572,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
         panel.add_widget(self._build_section_label("coffee-outline", "BREAK TIME"))
         panel.add_widget(self._build_duration_row("break"))
 
-        # -- tip banner --
-        panel.add_widget(self._build_tip_banner())
-
         # -- cancel / save --
         actions = MDBoxLayout(orientation="horizontal", spacing=dp(12), size_hint_y=None, height=dp(52))
 
@@ -645,7 +601,7 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             title="",
             content=panel,
             size_hint=(0.92, None),
-            height=dp(580),
+            height=dp(500),
             auto_dismiss=False,
             separator_height=0,
             background="",
@@ -709,8 +665,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             elif kind == "cancel_button_text":
                 ref.text_color = text_primary
 
-        # Segment highlight colors are set directly (not via the loop
-        # above), so they need their own explicit refresh here too.
         self._refresh_unit_selection("work")
         self._refresh_unit_selection("break")
 
