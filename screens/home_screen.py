@@ -49,6 +49,7 @@ from database.planner_queries import (
 from services.checklist_store import (
     create_checklist,
     get_all_checklists,
+    set_checked,
 )
 
 
@@ -617,7 +618,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 icon_color = accent_color
 
             # ------------------------------------------------
-            # ICON
+            # ICON / CHECKBOX
             # ------------------------------------------------
 
             icon_box = MDAnchorLayout(
@@ -627,15 +628,47 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 anchor_y="center",
             )
 
-            icon_box.add_widget(
-                MDIcon(
-                    icon=icon_name,
-                    theme_text_color="Custom",
-                    text_color=icon_color,
+            if kind == "checklist_item":
+
+                # Checklist items get a checkbox instead of a static
+                # icon, so they can be marked done right here on Home
+                # without navigating to Checklist Detail. The checkbox
+                # consumes its own touch, so it won't also trigger the
+                # row's on_release navigation below.
+                checkbox = MDCheckbox(
                     size_hint=(None, None),
                     size=(dp(28), dp(28)),
+                    pos_hint={
+                        "center_x": 0.5,
+                        "center_y": 0.5,
+                    },
                 )
-            )
+
+                # item_id is bound by value (default arg), not looked
+                # up at click-time, so it stays correct for this row
+                # even after today_plan_list is later rebuilt.
+                checkbox.bind(
+                    active=lambda inst, value, item_id=task.get("_item_id"):
+                    self.complete_checklist_item(item_id)
+                    if value
+                    else None
+                )
+
+                icon_box.add_widget(
+                    checkbox
+                )
+
+            else:
+
+                icon_box.add_widget(
+                    MDIcon(
+                        icon=icon_name,
+                        theme_text_color="Custom",
+                        text_color=icon_color,
+                        size_hint=(None, None),
+                        size=(dp(28), dp(28)),
+                    )
+                )
 
             row.add_widget(
                 icon_box
@@ -856,6 +889,27 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         self.manager.current = (
             "checklist_detail"
         )
+
+    def complete_checklist_item(self, item_id):
+        """
+        Marks a checklist item done directly from Today's Log, without
+        navigating to Checklist Detail. Rebuilds Today's Log (and the
+        Next Up stats) afterward so the completed row drops off the
+        list immediately.
+
+        Only ever called with active=True from the row's checkbox --
+        build_today_plan only ever puts unchecked items on Home in the
+        first place, so there's no "uncheck from Home" case to handle;
+        unchecking still happens from Checklist Detail as before.
+        """
+
+        if item_id is None:
+            return
+
+        set_checked(item_id, True)
+
+        self.refresh_stats()
+        self.build_today_plan()
 
     # ========================================================
     # NEXT UP
