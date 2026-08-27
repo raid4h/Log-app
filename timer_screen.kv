@@ -10,29 +10,38 @@
         spacing: dp(14)
 
         # =====================================================
-        # Top bar: back button + title/subtitle.
-        # Matches SettingsScreen's header shape.
+        # Top bar: back button + title/subtitle. Back button is
+        # top-aligned while the title column is nudged down a
+        # little via a small spacer, so the arrow sits visibly
+        # higher than the text block instead of both being
+        # centered on the same line.
         # =====================================================
 
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
-            height: dp(56)
+            height: dp(64)
             spacing: dp(8)
 
             MDIconButton:
                 id: back_button
                 icon: "arrow-left"
                 theme_icon_color: "Custom"
+                pos_hint: {"top": 1}
                 on_release: root.go_back()
 
             MDBoxLayout:
                 orientation: "vertical"
                 size_hint_x: 1
+                pos_hint: {"top": 1}
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(10)
 
                 MDLabel:
                     id: header_label
-                    text: "Focus Timer"
+                    text: "Pomodoro Timer"
                     theme_text_color: "Custom"
                     font_style: "Title"
                     role: "medium"
@@ -46,16 +55,13 @@
 
         # =====================================================
         # Centered cluster: hourglass, timer, session info,
-        # status message. This AnchorLayout fills 100% of the
-        # leftover vertical space (top_bar and controls_row are
-        # both fixed-height), so the whole cluster is properly
-        # centered regardless of exact content sizes.
+        # status message. Untouched.
         # =====================================================
 
         AnchorLayout:
             anchor_x: "center"
-            anchor_y: "top"              
-            padding: 0, dp(24), 0, 0 
+            anchor_y: "top"
+            padding: 0, dp(24), 0, 0
 
             MDBoxLayout:
                 orientation: "vertical"
@@ -64,9 +70,6 @@
                 adaptive_height: True
                 spacing: dp(10)
 
-                # Small spacer -- nudges the hourglass down slightly
-                # from the top of the cluster instead of sitting flush
-                # against it, per "bring the hourglass a bit below".
                 Widget:
                     size_hint_y: None
                     height: dp(18)
@@ -114,9 +117,6 @@
                     size_hint_y: None
                     height: dp(26)
 
-                # Reserved height, even when empty, so a transition
-                # message appearing/disappearing never shifts the
-                # controls row below it.
                 MDLabel:
                     id: status_label
                     text: ""
@@ -130,7 +130,7 @@
 
         # =====================================================
         # Controls: reset (secondary) — play/pause (primary,
-        # filled + larger) — settings (secondary)
+        # filled + larger) — settings (secondary). Untouched.
         # =====================================================
 
         MDBoxLayout:

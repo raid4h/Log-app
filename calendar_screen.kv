@@ -13,7 +13,7 @@
 
         MDBoxLayout:
             size_hint_y: None
-            height: dp(56)
+            height: dp(64)
 
             spacing: dp(6)
 
@@ -25,6 +25,8 @@
 
                 theme_icon_color: "Custom"
 
+                pos_hint: {"top": 1}
+
                 on_release:
                     root.go_back()
 
@@ -33,6 +35,13 @@
                 orientation: "vertical"
 
                 spacing: dp(0)
+
+                pos_hint: {"top": 1}
+
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(10)
 
 
                 MDLabel:
