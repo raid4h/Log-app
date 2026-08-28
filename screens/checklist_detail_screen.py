@@ -377,6 +377,38 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self._new_item_input.bind(on_text_validate=lambda *_a: self._submit_new_item())
         row.add_widget(self._new_item_input)
 
+        # Right-side filled square "+" button, matching the reference
+        # image -- calls the SAME _submit_new_item() the Enter key
+        # already triggers, just a second way to reach it. Uses
+        # _build_themed_button's underlying color logic manually
+        # (MDIconButton doesn't take an MDButtonText child the way
+        # MDButton does) rather than introducing a new theming helper.
+        add_btn = MDIconButton(
+            icon="plus",
+            theme_icon_color="Custom",
+            theme_bg_color="Custom",
+            md_bg_color=theme_manager.get_color(BUTTON),
+            icon_color=theme_manager.get_color(BUTTON_TEXT),
+            radius=[10],
+            size_hint=(None, None),
+            size=(dp(40), dp(40)),
+            pos_hint={"center_y": 0.5},
+        )
+        add_btn.bind(on_release=lambda *_a: self._submit_new_item())
+        row.add_widget(add_btn)
+
+        # Same delayed re-apply safety net used throughout this file's
+        # other buttons (see _apply_popup_button_colors docstring) --
+        # style-driven KivyMD fill colors have been observed reverting
+        # to Material defaults on a later frame even when set at
+        # construction.
+        def _reapply_add_btn_theme(*_a):
+            add_btn.md_bg_color = theme_manager.get_color(BUTTON)
+            add_btn.icon_color = theme_manager.get_color(BUTTON_TEXT)
+
+        Clock.schedule_once(_reapply_add_btn_theme, 0.3)
+        theme_manager.bind(theme_name=_reapply_add_btn_theme)
+
         return row
 
     def _submit_new_item(self):

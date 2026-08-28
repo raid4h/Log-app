@@ -1,19 +1,21 @@
 from theme.theme_manager import theme_manager
 
-from kivymd.uix.dialog import (
-    MDDialog,
-    MDDialogHeadlineText,
-    MDDialogContentContainer,
-    MDDialogButtonContainer,
-)
-from kivymd.uix.textfield import MDTextField
-from kivymd.uix.button import MDButton, MDButtonText
+from kivy.uix.popup import Popup
+from kivy.uix.widget import Widget
+from kivy.uix.label import Label
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.utils import get_color_from_hex
+from kivy.metrics import dp, sp
+
+from kivymd.uix.card import MDCard
+from kivymd.uix.button import MDButton, MDButtonText, MDIconButton
+from kivymd.uix.boxlayout import MDBoxLayout
 
 from kivy.clock import Clock
 from kivy.app import App
 
 from kivymd.uix.screen import MDScreen
-from kivymd.uix.boxlayout import MDBoxLayout
 
 from widgets.hourglass import HourglassWidget
 
@@ -24,8 +26,10 @@ from theme.palettes import (
     TEXT_SECONDARY,
     BUTTON,
     BUTTON_TEXT,
+    CARD_PRIMARY,
     CARD_SECONDARY,
     BORDER,
+    ACCENT,
 )
 
 
@@ -149,6 +153,55 @@ class PomodoroTimer:
         )
 
 
+class _UnitSegment(ButtonBehavior, MDBoxLayout):
+    """
+    One tappable "NN unit" segment inside a duration row (e.g. "25 min"
+    or "00 sec"). Tapping it calls on_tap() -- the row decides what
+    that means (select this unit for the -/+ buttons to adjust).
+    Highlight is a soft background tint drawn directly via
+    Color/RoundedRectangle, same technique CalendarDayCell already
+    uses for its "today" highlight -- refreshed explicitly by the
+    screen, not automatically, since selection state lives on the
+    screen, not on this widget.
+    """
+
+    def __init__(self, value_text, unit_text, on_tap, **kwargs):
+        kwargs.setdefault("orientation", "horizontal")
+        kwargs.setdefault("spacing", dp(6))
+        kwargs.setdefault("padding", [dp(8), dp(4)])
+        kwargs.setdefault("size_hint_x", None)
+        kwargs.setdefault("width", dp(92))
+        super().__init__(**kwargs)
+        self._on_tap = on_tap
+
+        with self.canvas.before:
+            self.highlight_color = Color(0, 0, 0, 0)
+            self._highlight_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+        self.bind(pos=self._redraw, size=self._redraw)
+
+        self.value_label = Label(
+            text=value_text, font_size=sp(28), bold=True,
+            size_hint_x=None, width=dp(48), halign="right", valign="middle",
+        )
+        self.value_label.bind(size=self.value_label.setter("text_size"))
+        self.add_widget(self.value_label)
+
+        self.unit_label = Label(
+            text=unit_text, font_size=sp(12),
+            size_hint_x=None, width=dp(34), halign="left", valign="middle",
+        )
+        self.unit_label.bind(size=self.unit_label.setter("text_size"))
+        self.add_widget(self.unit_label)
+
+    def _redraw(self, *_a):
+        self._highlight_rect.pos = self.pos
+        self._highlight_rect.size = self.size
+
+    def on_release(self):
+        if self._on_tap:
+            self._on_tap()
+
+
 class TimerScreen(ThemedScreenMixin, MDScreen):
 
     THEME_MAP = {
@@ -176,8 +229,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
         self.timer = PomodoroTimer()
         self.dialog = None
 
-        # Remembers the mode from the previous refresh tick, so we can
-        # detect the exact moment work/break flips (a "transition").
         self._last_is_break = self.timer.is_break
         self._last_cycle_finished = self.timer.cycle_finished
         self._status_clear_event = None
@@ -226,10 +277,6 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             )
 
     def _on_session_transitioned(self):
-        """
-        Called once, right when the timer flips between work and break.
-        Picks a short, friendly status message for the new mode.
-        """
         if self.timer.is_break:
             message = "Study/Work session over."
         else:
@@ -292,253 +339,340 @@ class TimerScreen(ThemedScreenMixin, MDScreen):
             hourglass.glass_color = theme_manager.get_color(TEXT_SECONDARY)
             hourglass.sand_color = theme_manager.get_color(BUTTON)
 
-    # ── timer settings dialog ──
+    # ── timer settings popup ──
+    #
+    # Each duration row's minutes/seconds are independently tappable
+    # via _UnitSegment -- tapping one selects it, and the -/+ buttons
+    # then adjust ONLY whichever unit is currently selected. The
+    # underlying value stays a single total_seconds integer -- divmod()
+    # already correctly carries across the minute/second boundary in
+    # either direction. apply_timer() is unchanged: it still calls
+    # timer.set_work_duration(minutes, seconds).
+    #
+    # MIN_DURATION_SECONDS is only a floor against a literal
+    # zero-length session (which would complete instantly) -- there is
+    # deliberately NO "must be at least 1 minute" restriction, so
+    # 0 min : a few sec is a valid duration. MAX_DURATION_SECONDS caps
+    # the upper end only, per spec ("threshold on the upper value, not
+    # the least value") -- 60 minutes + up to 59 extra seconds.
 
-    def _make_settings_field(self, hint_text):
-        """
-        Builds one Mins/Secs input for the settings dialog.
+    MIN_DURATION_SECONDS = 1
+    MAX_DURATION_SECONDS = (60 * 60) + 59
 
-        theme_line_color="Custom" is required for line_color_normal /
-        line_color_focus (set in _apply_dialog_theme) to actually take
-        effect -- without it the field ignores those and falls back to
-        KivyMD's own Material line color, same root cause as the rest
-        of this dialog.
+    def _clamp_duration(self, total_seconds):
+        return max(self.MIN_DURATION_SECONDS, min(total_seconds, self.MAX_DURATION_SECONDS))
 
-        foreground_color is inherited straight from Kivy's TextInput
-        (MDTextField's base class), not a KivyMD-versioned property,
-        so it's set here directly rather than in the theme refresh --
-        stable across KivyMD API changes.
-        """
-        return MDTextField(
-            mode="outlined",
-            size_hint_x=None,
-            width="95dp",
-            size_hint_y=None,
-            height="48dp",
-            hint_text=hint_text,
-            theme_line_color="Custom",
-            foreground_color=theme_manager.get_color(TEXT_PRIMARY),
+    def _sync_stepper_from_timer(self):
+        self._work_total_seconds = self.timer.work_duration
+        self._break_total_seconds = self.timer.break_duration
+        self._work_unit_state["selected"] = "minutes"
+        self._break_unit_state["selected"] = "minutes"
+        self._update_work_labels()
+        self._update_break_labels()
+        self._refresh_unit_selection("work")
+        self._refresh_unit_selection("break")
+
+    def _update_work_labels(self):
+        minutes, seconds = divmod(self._work_total_seconds, 60)
+        self._work_minutes_segment.value_label.text = f"{minutes:02d}"
+        self._work_seconds_segment.value_label.text = f"{seconds:02d}"
+
+    def _update_break_labels(self):
+        minutes, seconds = divmod(self._break_total_seconds, 60)
+        self._break_minutes_segment.value_label.text = f"{minutes:02d}"
+        self._break_seconds_segment.value_label.text = f"{seconds:02d}"
+
+    def _select_unit(self, kind, unit_name):
+        state = self._work_unit_state if kind == "work" else self._break_unit_state
+        state["selected"] = unit_name
+        self._refresh_unit_selection(kind)
+
+    def _step_duration(self, kind, sign):
+        if kind == "work":
+            unit = self._work_unit_state["selected"]
+            step = 60 if unit == "minutes" else 1
+            self._work_total_seconds = self._clamp_duration(self._work_total_seconds + sign * step)
+            self._update_work_labels()
+        else:
+            unit = self._break_unit_state["selected"]
+            step = 60 if unit == "minutes" else 1
+            self._break_total_seconds = self._clamp_duration(self._break_total_seconds + sign * step)
+            self._update_break_labels()
+
+    def _refresh_unit_selection(self, kind):
+        if kind == "work":
+            unit_state = self._work_unit_state
+            minutes_segment = self._work_minutes_segment
+            seconds_segment = self._work_seconds_segment
+        else:
+            unit_state = self._break_unit_state
+            minutes_segment = self._break_minutes_segment
+            seconds_segment = self._break_seconds_segment
+
+        accent_rgba = get_color_from_hex(theme_manager.get_color(ACCENT))
+        text_primary_rgba = get_color_from_hex(theme_manager.get_color(TEXT_PRIMARY))
+        text_secondary_rgba = get_color_from_hex(theme_manager.get_color(TEXT_SECONDARY))
+
+        for segment, unit_name in ((minutes_segment, "minutes"), (seconds_segment, "seconds")):
+            is_selected = unit_state["selected"] == unit_name
+            segment.highlight_color.rgba = (
+                (accent_rgba[0], accent_rgba[1], accent_rgba[2], 0.28)
+                if is_selected else (0, 0, 0, 0)
+            )
+            label_color = text_primary_rgba if is_selected else text_secondary_rgba
+            segment.value_label.color = label_color
+            segment.unit_label.color = label_color
+
+    def _build_divider(self):
+        divider = Widget(size_hint_y=None, height=dp(1))
+        with divider.canvas:
+            color_instr = Color(0, 0, 0, 0)
+            rect = Rectangle(pos=divider.pos, size=divider.size)
+
+        def _redraw(inst, *_a, _rect=rect):
+            _rect.pos = inst.pos
+            _rect.size = inst.size
+
+        divider.bind(pos=_redraw, size=_redraw)
+        self._popup_theme_refs.append(("divider", color_instr))
+        return divider
+
+    def _build_section_label(self, icon_name, text):
+        row = MDBoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(24))
+
+        icon = MDIconButton(
+            icon=icon_name, theme_icon_color="Custom", disabled=True,
+            size_hint=(None, None), size=(dp(20), dp(20)),
+            pos_hint={"center_y": 0.5},
         )
+        self._popup_theme_refs.append(("icon_accent", icon))
+        row.add_widget(icon)
+
+        label = Label(text=text, font_size=sp(12), bold=True, halign="left", valign="middle", size_hint_x=1)
+        label.bind(size=label.setter("text_size"))
+        self._popup_theme_refs.append(("label_secondary", label))
+        row.add_widget(label)
+
+        return row
+
+    def _build_duration_row(self, kind):
+        unit_state = {"selected": "minutes"}
+        if kind == "work":
+            self._work_unit_state = unit_state
+        else:
+            self._break_unit_state = unit_state
+
+        row = MDCard(
+            orientation="horizontal",
+            theme_bg_color="Custom",
+            padding=[dp(6), dp(6)],
+            spacing=dp(4),
+            radius=[18],
+            elevation=0,
+            size_hint_y=None,
+            height=dp(64),
+        )
+        self._popup_theme_refs.append(("soft_bg", row))
+
+        minus_btn = MDIconButton(icon="minus", theme_icon_color="Custom")
+        minus_btn.bind(on_release=lambda *_a: self._step_duration(kind, -1))
+        self._popup_theme_refs.append(("icon_muted", minus_btn))
+        row.add_widget(minus_btn)
+
+        center = MDBoxLayout(orientation="horizontal", spacing=dp(4), padding=[dp(4), 0])
+
+        minutes_segment = _UnitSegment("00", "min", lambda: self._select_unit(kind, "minutes"))
+        center.add_widget(minutes_segment)
+
+        vdivider = Widget(size_hint_x=None, width=dp(1))
+        with vdivider.canvas:
+            vdivider_color = Color(0, 0, 0, 0)
+            vdivider_rect = Rectangle()
+
+        def _redraw_vdivider(inst, *_a, _rect=vdivider_rect):
+            _rect.pos = (inst.center_x - dp(0.5), inst.y + dp(6))
+            _rect.size = (dp(1), max(inst.height - dp(12), 0))
+
+        vdivider.bind(pos=_redraw_vdivider, size=_redraw_vdivider)
+        self._popup_theme_refs.append(("divider", vdivider_color))
+        center.add_widget(vdivider)
+
+        seconds_segment = _UnitSegment("00", "sec", lambda: self._select_unit(kind, "seconds"))
+        center.add_widget(seconds_segment)
+
+        row.add_widget(center)
+
+        plus_btn = MDIconButton(icon="plus", theme_icon_color="Custom")
+        plus_btn.bind(on_release=lambda *_a: self._step_duration(kind, 1))
+        self._popup_theme_refs.append(("icon_muted", plus_btn))
+        row.add_widget(plus_btn)
+
+        if kind == "work":
+            self._work_minutes_segment = minutes_segment
+            self._work_seconds_segment = seconds_segment
+        else:
+            self._break_minutes_segment = minutes_segment
+            self._break_seconds_segment = seconds_segment
+
+        return row
+
+    def _build_timer_settings_popup(self):
+        self._popup_theme_refs = []
+
+        panel = MDCard(
+            orientation="vertical",
+            theme_bg_color="Custom",
+            padding=dp(20),
+            spacing=dp(16),
+            radius=[26],
+            elevation=0,
+        )
+        self._popup_theme_refs.append(("panel_bg", panel))
+
+        # -- header: icon circle + title + close button --
+        header = MDBoxLayout(orientation="horizontal", spacing=dp(12), size_hint_y=None, height=dp(48))
+
+        icon_circle = MDCard(
+            theme_bg_color="Custom",
+            size_hint=(None, None), size=(dp(48), dp(48)),
+            radius=[24],
+            pos_hint={"center_y": 0.5},
+        )
+        header_icon = MDIconButton(
+            icon="timer-outline", theme_icon_color="Custom", disabled=True,
+            size_hint=(None, None), size=(dp(30), dp(30)),
+            pos_hint={"center_x": 0.5, "center_y": 0.5},
+        )
+        icon_circle.add_widget(header_icon)
+        self._popup_theme_refs.append(("soft_bg", icon_circle))
+        self._popup_theme_refs.append(("icon_accent", header_icon))
+        header.add_widget(icon_circle)
+
+        title_label = Label(
+            text="Timer Settings", font_size=sp(19), bold=True,
+            halign="left", valign="middle", size_hint_x=1,
+        )
+        title_label.bind(size=title_label.setter("text_size"))
+        self._popup_theme_refs.append(("label_primary", title_label))
+        header.add_widget(title_label)
+
+        close_btn = MDIconButton(icon="close", theme_icon_color="Custom", pos_hint={"center_y": 0.5})
+        close_btn.bind(on_release=lambda *_a: self.dialog.dismiss())
+        self._popup_theme_refs.append(("icon_muted", close_btn))
+        header.add_widget(close_btn)
+
+        panel.add_widget(header)
+        panel.add_widget(self._build_divider())
+
+        # -- focus time --
+        panel.add_widget(self._build_section_label("leaf", "FOCUS TIME"))
+        panel.add_widget(self._build_duration_row("work"))
+
+        # -- break time --
+        panel.add_widget(self._build_section_label("coffee-outline", "BREAK TIME"))
+        panel.add_widget(self._build_duration_row("break"))
+
+        # -- cancel / save --
+        actions = MDBoxLayout(orientation="horizontal", spacing=dp(12), size_hint_y=None, height=dp(52))
+
+        self.dialog_cancel_text = MDButtonText(text="CANCEL", theme_text_color="Custom")
+        cancel_btn = MDButton(
+            self.dialog_cancel_text, style="outlined", theme_line_color="Custom",
+            size_hint_x=1, height=dp(52), radius=[26],
+            on_release=lambda *_a: self.dialog.dismiss(),
+        )
+        self._popup_theme_refs.append(("cancel_button", cancel_btn))
+        self._popup_theme_refs.append(("cancel_button_text", self.dialog_cancel_text))
+        actions.add_widget(cancel_btn)
+
+        self.dialog_save_text = MDButtonText(text="SAVE", theme_text_color="Custom")
+        save_btn = MDButton(
+            self.dialog_save_text, style="filled", theme_bg_color="Custom",
+            size_hint_x=1, height=dp(52), radius=[26],
+            on_release=self.apply_timer,
+        )
+        self._popup_theme_refs.append(("save_button", save_btn))
+        self._popup_theme_refs.append(("save_button_text", self.dialog_save_text))
+        actions.add_widget(save_btn)
+
+        panel.add_widget(actions)
+
+        self.dialog = Popup(
+            title="",
+            content=panel,
+            size_hint=(0.92, None),
+            height=dp(500),
+            auto_dismiss=False,
+            separator_height=0,
+            background="",
+            background_color=(0, 0, 0, 0.5),
+        )
+        self.dialog.bind(on_dismiss=self._on_dialog_dismissed)
 
     def open_timer_dialog(self):
-
         if self.dialog is None:
+            self._build_timer_settings_popup()
 
-            self.minutes_field = self._make_settings_field("Mins")
-            self.seconds_field = self._make_settings_field("Secs")
-            self.break_minutes_field = self._make_settings_field("Mins")
-            self.break_seconds_field = self._make_settings_field("Secs")
-
-            focus_row = MDBoxLayout(
-                orientation="horizontal",
-                adaptive_height=True,
-                adaptive_width=True,
-                spacing="16dp",
-                pos_hint={"center_x": 0.5},
-            )
-
-            focus_row.add_widget(self.minutes_field)
-            focus_row.add_widget(self.seconds_field)
-
-            break_row = MDBoxLayout(
-                orientation="horizontal",
-                adaptive_height=True,
-                adaptive_width=True,
-                spacing="16dp",
-                pos_hint={"center_x": 0.5},
-            )
-
-            break_row.add_widget(self.break_minutes_field)
-            break_row.add_widget(self.break_seconds_field)
-
-            self.dialog_focus_heading = MDDialogHeadlineText(
-                text="Set Focus Time"
-            )
-            self.dialog_break_heading = MDDialogHeadlineText(
-                text="Set Break Time"
-            )
-            self.dialog_title = MDDialogHeadlineText(
-                text="Pomodoro Settings"
-            )
-
-            self.dialog_cancel_text = MDButtonText(text="Cancel")
-            self.dialog_set_text = MDButtonText(text="Set")
-
-            self.dialog_cancel_button = MDButton(
-                self.dialog_cancel_text,
-                style="tonal",
-                on_release=lambda x: self.dialog.dismiss(),
-            )
-
-            self.dialog_set_button = MDButton(
-                self.dialog_set_text,
-                style="filled",
-                on_release=self.apply_timer,
-            )
-
-            self.dialog = MDDialog(
-
-                self.dialog_title,
-
-                MDDialogContentContainer(
-
-                    self.dialog_focus_heading,
-
-                    focus_row,
-
-                    self.dialog_break_heading,
-
-                    break_row,
-
-                    orientation="vertical",
-                ),
-
-                MDDialogButtonContainer(
-                    self.dialog_cancel_button,
-                    self.dialog_set_button,
-                    spacing="12dp",
-                ),
-            )
-
-            self.dialog.bind(on_dismiss=self._on_dialog_dismissed)
-
-        self._apply_dialog_theme()
+        self._sync_stepper_from_timer()
+        self._apply_popup_theme()
         theme_manager.bind(theme_name=self._on_theme_name_changed)
         self.dialog.open()
 
-        # WORKAROUND: MDDialog's surface color and MDButton's
-        # style="filled" background both reverted to KivyMD's Material
-        # defaults on-device even though _apply_dialog_theme() above
-        # set them correctly -- text fields and headline text (which
-        # don't have this style-driven auto-recolor behavior) kept
-        # our colors fine. This points to KivyMD re-applying its own
-        # theme_cls-derived color internally on some later frame (seen
-        # in KivyMD's own issue tracker for MDButton specifically --
-        # style-driven widgets recompute their color and can overwrite
-        # an externally-set one). Re-applying again shortly after
-        # .open() makes our colors the LAST write instead of getting
-        # silently reverted. If this still doesn't stick, the KivyMD
-        # version in use may need a different override mechanism
-        # entirely (e.g. a custom style/theme_cls subclass) rather
-        # than a per-widget color assignment -- worth flagging if so.
-        Clock.schedule_once(lambda dt: self._apply_dialog_theme(), 0.3)
-
     def _on_theme_name_changed(self, *args):
-        self._apply_dialog_theme()
+        self._apply_popup_theme()
 
     def _on_dialog_dismissed(self, *args):
-        # Stops _apply_dialog_theme() from re-running on every future
-        # theme switch for the rest of the app session -- it only
-        # needs to happen while this dialog is actually visible.
-        # Binding once in open_timer_dialog() and never unbinding
-        # meant every subsequent theme change kept re-coloring a
-        # closed, invisible dialog for no reason -- real overhead on
-        # every single switch, forever, after just one dialog open.
         theme_manager.unbind(theme_name=self._on_theme_name_changed)
 
-    def _apply_dialog_theme(self, *args):
-        """
-        Themes the Focus Timer Settings dialog, since MDDialog and its
-        children default to KivyMD's own Material colors otherwise --
-        that mismatch (not a bug in the color VALUES) is what made it
-        clash with the retro theme regardless of which theme was
-        active. Bound to theme_manager.theme_name in open_timer_dialog
-        so switching themes re-colors an already-open/already-built
-        dialog instead of only applying once at creation.
-
-        CARD_SECONDARY + BORDER give the dialog a surface distinct
-        from the screen behind it -- previously nothing did, since
-        card_primary/card_secondary/background all sit close together
-        in every palette and the dialog wasn't using any of them.
-        """
+    def _apply_popup_theme(self, *args):
         if self.dialog is None:
             return
 
         surface = theme_manager.get_color(CARD_SECONDARY)
+        soft_surface = theme_manager.get_color(CARD_PRIMARY)
         border = theme_manager.get_color(BORDER)
+        accent = theme_manager.get_color(ACCENT)
         text_primary = theme_manager.get_color(TEXT_PRIMARY)
         text_secondary = theme_manager.get_color(TEXT_SECONDARY)
         button_color = theme_manager.get_color(BUTTON)
         button_text_color = theme_manager.get_color(BUTTON_TEXT)
 
-        # IMPORTANT: the actual color value is assigned BEFORE the
-        # matching theme_*_color = "Custom" flag on every widget below
-        # -- not after. Several KivyMD 2.x widgets (confirmed on
-        # MDDialogHeadlineText) default their color property to None,
-        # and setting theme_*_color = "Custom" triggers an immediate
-        # internal re-apply that reads whatever the color property
-        # currently holds right then. Flip the order and it crashes
-        # the very first time this runs -- "None is not allowed for
-        # <Widget>.color" -- since no real color has been assigned yet.
+        text_primary_rgba = get_color_from_hex(text_primary)
+        text_secondary_rgba = get_color_from_hex(text_secondary)
+        border_rgba = get_color_from_hex(border)
 
-        self.dialog.md_bg_color = surface
-        self.dialog.theme_bg_color = "Custom"
-        self.dialog.line_color = border
+        for kind, ref in self._popup_theme_refs:
+            if kind == "panel_bg":
+                ref.md_bg_color = surface
+            elif kind == "soft_bg":
+                ref.md_bg_color = soft_surface
+            elif kind == "icon_muted":
+                ref.icon_color = text_secondary
+            elif kind == "icon_accent":
+                ref.icon_color = accent
+            elif kind == "label_primary":
+                ref.color = text_primary_rgba
+            elif kind == "label_secondary":
+                ref.color = text_secondary_rgba
+            elif kind == "divider":
+                ref.rgba = border_rgba
+            elif kind == "save_button":
+                ref.md_bg_color = button_color
+            elif kind == "save_button_text":
+                ref.text_color = button_text_color
+            elif kind == "cancel_button":
+                ref.line_color = border
+            elif kind == "cancel_button_text":
+                ref.text_color = text_primary
 
-        for heading in (
-            self.dialog_title,
-            self.dialog_focus_heading,
-            self.dialog_break_heading,
-        ):
-            heading.text_color = text_primary
-            heading.theme_text_color = "Custom"
-
-        for field in (
-            self.minutes_field,
-            self.seconds_field,
-            self.break_minutes_field,
-            self.break_seconds_field,
-        ):
-            field.line_color_normal = text_secondary
-            field.line_color_focus = button_color
-
-        self.dialog_cancel_button.md_bg_color = border
-        self.dialog_cancel_button.theme_bg_color = "Custom"
-        self.dialog_cancel_text.text_color = text_primary
-        self.dialog_cancel_text.theme_text_color = "Custom"
-
-        self.dialog_set_button.md_bg_color = button_color
-        self.dialog_set_button.theme_bg_color = "Custom"
-        self.dialog_set_text.text_color = button_text_color
-        self.dialog_set_text.theme_text_color = "Custom"
+        self._refresh_unit_selection("work")
+        self._refresh_unit_selection("break")
 
     def apply_timer(self, *args):
+        work_minutes, work_seconds = divmod(self._work_total_seconds, 60)
+        break_minutes, break_seconds = divmod(self._break_total_seconds, 60)
 
-        work_minutes = (
-            int(self.minutes_field.text)
-            if self.minutes_field.text.isdigit()
-            else 0
-        )
-
-        work_seconds = (
-            int(self.seconds_field.text)
-            if self.seconds_field.text.isdigit()
-            else 0
-        )
-
-        break_minutes = (
-            int(self.break_minutes_field.text)
-            if self.break_minutes_field.text.isdigit()
-            else 0
-        )
-
-        break_seconds = (
-            int(self.break_seconds_field.text)
-            if self.break_seconds_field.text.isdigit()
-            else 0
-        )
-
-        work_seconds = min(work_seconds, 59)
-        break_seconds = min(break_seconds, 59)
-
-        self.timer.set_work_duration(
-            work_minutes,
-            work_seconds,
-        )
-
-        self.timer.set_break_duration(
-            break_minutes,
-            break_seconds,
-        )
+        self.timer.set_work_duration(work_minutes, work_seconds)
+        self.timer.set_break_duration(break_minutes, break_seconds)
 
         self.dialog.dismiss()

@@ -8,12 +8,10 @@
 # (checklist_detail_screen.py), since item rows are dynamic
 # ChecklistItem widgets with per-row delete buttons.
 #
-# UI-only pass: tightened section_label's bottom breathing room before
-# item_list, and gave item_list slightly more spacing between rows so
-# taller expanded items (with sub-items showing) don't read as
-# crowded against their neighbors. The checkbox shape, expand-arrow
-# visibility, and item/checkbox alignment are NOT fixable here -- they
-# live in kv/checklist_item.kv (the ChecklistItem widget itself).
+# UI-only pass: back button top-aligned, title/subtitle nudged down
+# via a small spacer (matching the same header fix already applied to
+# Timer/Calendar), and the pencil button top-aligned to sit level with
+# the title text instead of the row's vertical center.
 
 <ChecklistDetailScreen>:
 
@@ -26,20 +24,25 @@
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
-            height: dp(56)
+            height: dp(64)
             spacing: dp(10)
 
             MDIconButton:
                 id: back_button
                 icon: "arrow-left"
                 theme_icon_color: "Custom"
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
                 on_release: root.go_back()
 
             MDBoxLayout:
                 orientation: "vertical"
                 spacing: dp(2)
                 padding: dp(2), 0, 0, 0
+                pos_hint: {"top": 1}
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(10)
 
                 MDLabel:
                     id: header_label
@@ -61,7 +64,7 @@
             MDIconButton:
                 icon: "pencil-outline"
                 theme_icon_color: "Custom"
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
                 on_release: root.open_edit_checklist_popup()
 
         ScrollView:
@@ -87,11 +90,6 @@
                     adaptive_height: True
                     padding: [dp(2), 0]
 
-                # active items + inline "add another item" row --
-                # filled by ChecklistDetailScreen.load_items(). Spacing
-                # bumped 12 -> 15dp so item rows have a bit more visual
-                # separation, particularly when one item is taller than
-                # its neighbors (e.g. subtasks expanded).
                 MDBoxLayout:
                     id: item_list
                     orientation: "vertical"
@@ -99,7 +97,6 @@
                     size_hint_y: None
                     adaptive_height: True
 
-                # thin divider before the checked-items section
                 Widget:
                     size_hint_y: None
                     height: dp(1)
@@ -110,9 +107,6 @@
                             pos: self.x, self.center_y
                             size: self.width, dp(1)
 
-                # collapsible "N Checked Items" header + list --
-                # filled by ChecklistDetailScreen.load_items(); empty
-                # (zero height) whenever there are no checked items
                 MDBoxLayout:
                     id: checked_section
                     orientation: "vertical"
