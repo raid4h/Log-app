@@ -62,6 +62,7 @@ def get_today_tasks(user_id, today_date):
                 "category_id": None, "category_name": None, "category_color": None,
                 "note_count": 0, "pomodoro_completed": 0,
                 "_checklist_id": checklist["id"],  # needed so tapping the row can open the right checklist
+                "_item_id": item["id"],  # raw checklist_items.id, so Home can toggle it directly via set_checked()
             })
 
     tasks.sort(key=lambda t: t["due_date"] or "")
