@@ -2,7 +2,7 @@
 #
 # Main Checklist screen -- shows every checklist as a summary card
 # (widgets/checklist_card.py). Tapping a card opens its items on
-# screens/checklist_detail_screen.py. The "+" button creates a new
+# screens/checklist_detail_screen.py. The add bar creates a new
 # checklist (title, optional category, optional priority) rather than
 # adding an item directly -- items are added inside the detail screen.
 #
@@ -13,18 +13,24 @@
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
-from kivymd.uix.button import MDButton, MDButtonText
+from kivymd.uix.button import MDButton, MDButtonText, MDIconButton
+from kivymd.uix.boxlayout import MDBoxLayout
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
+from kivy.clock import Clock
 from kivy.metrics import dp, sp
 from kivy.utils import get_color_from_hex
 
 from theme.theme_manager import theme_manager
 from theme.themed_screen import ThemedScreenMixin
-from theme.palettes import BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_PRIMARY, ACCENT
+from theme.palettes import (
+    BACKGROUND, TEXT_PRIMARY, TEXT_SECONDARY, CARD_PRIMARY,
+    ACCENT, BORDER, BUTTON, BUTTON_TEXT,
+)
 
 from widgets.checklist_card import ChecklistCard
 
@@ -49,11 +55,27 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
         "back_button":    ("icon_color", TEXT_PRIMARY),
         "header_label":   ("text_color", TEXT_PRIMARY),
         "subtitle_label": ("text_color", TEXT_SECONDARY),
-        "add_bar":        ("md_bg_color", CARD_PRIMARY),
+        "add_bar_label":  ("text_color", TEXT_SECONDARY),
     }
 
     def on_pre_enter(self, *args):
         self.load_checklists()
+
+    def on_theme_applied(self):
+        # add_bar's dashed border color and add_button's fill/icon
+        # color both need more than THEME_MAP's one-property-per-id
+        # can give a single MDIconButton, and the border is a raw
+        # canvas Color instruction (not a widget property at all) --
+        # same reasoning as every other custom-drawn theme element
+        # in this app (dividers, dashboard tiles' accent dots, etc).
+        border_color = self.ids.get("add_bar_border_color")
+        if border_color is not None:
+            border_color.rgba = theme_rgba(BORDER)
+
+        add_button = self.ids.get("add_button")
+        if add_button is not None:
+            add_button.md_bg_color = theme_manager.get_color(BUTTON)
+            add_button.icon_color = theme_manager.get_color(BUTTON_TEXT)
 
     def go_back(self):
         App.get_running_app().root.current = "home"
@@ -64,7 +86,7 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
             return getattr(app, "user_id", 1)
         except Exception:
             return 1
-        
+
     # ── loading the list ──
 
     def load_checklists(self):
@@ -73,21 +95,70 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
         checklists = get_all_checklists(self._user_id())
 
         if not checklists:
-            self.ids.checklist_list.add_widget(self._build_empty_label())
+            self.ids.checklist_list.add_widget(self._build_empty_state())
             return
 
         for checklist in checklists:
             self.ids.checklist_list.add_widget(self._build_card(checklist))
 
-    def _build_empty_label(self):
-        return MDLabel(
-            text="No checklists yet -- create one below.",
-            halign="center",
-            theme_text_color="Custom",
-            text_color=theme_manager.get_color(TEXT_SECONDARY),
+    def _build_empty_state(self):
+        """
+        Icon-in-soft-circle + bold heading + secondary line, matching
+        the reference image's empty state -- same information as the
+        old single-line label ("no checklists yet, create one"), just
+        laid out with more visual presence.
+        """
+        container = MDBoxLayout(
+            orientation="vertical",
+            spacing=dp(10),
+            padding=[dp(20), dp(36), dp(20), dp(36)],
             size_hint_y=None,
-            height="60dp",
+            adaptive_height=True,
         )
+
+        icon_wrapper = AnchorLayout(
+            anchor_x="center", anchor_y="center",
+            size_hint_y=None, height=dp(96),
+        )
+        icon_circle = MDCard(
+            theme_bg_color="Custom",
+            md_bg_color=theme_manager.get_color(CARD_PRIMARY),
+            size_hint=(None, None), size=(dp(88), dp(88)),
+            radius=[44],
+            elevation=0,
+        )
+        icon_circle.add_widget(MDIconButton(
+            icon="clipboard-text-outline",
+            theme_icon_color="Custom",
+            icon_color=theme_manager.get_color(ACCENT),
+            disabled=True,
+            size_hint=(None, None), size=(dp(48), dp(48)),
+            pos_hint={"center_x": 0.5, "center_y": 0.5},
+        ))
+        icon_wrapper.add_widget(icon_circle)
+        container.add_widget(icon_wrapper)
+
+        heading = Label(
+            text="No checklists yet",
+            font_size=sp(17), bold=True,
+            color=theme_rgba(TEXT_PRIMARY),
+            halign="center", valign="middle",
+            size_hint_y=None, height=dp(26),
+        )
+        heading.bind(size=heading.setter("text_size"))
+        container.add_widget(heading)
+
+        subtext = Label(
+            text="Create your first checklist.",
+            font_size=sp(13),
+            color=theme_rgba(TEXT_SECONDARY),
+            halign="center", valign="middle",
+            size_hint_y=None, height=dp(20),
+        )
+        subtext.bind(size=subtext.setter("text_size"))
+        container.add_widget(subtext)
+
+        return container
 
     def _build_card(self, checklist):
         total, checked = get_checklist_item_counts(checklist["id"])

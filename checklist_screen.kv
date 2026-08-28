@@ -2,46 +2,56 @@
 #
 # Main Checklist screen: list of checklist summary cards
 # (widgets/checklist_card.py, built in Python) plus a single
-# "+ New Checklist" button that opens the creation popup in
-# checklist_screen.py. Individual checklist items are NOT shown or
-# added here anymore -- tapping a card navigates to
-# checklist_detail_screen.kv for that.
+# add-bar that opens the creation popup in checklist_screen.py.
+# Individual checklist items are NOT shown or added here anymore --
+# tapping a card navigates to checklist_detail_screen.kv for that.
 #
-# UI-only pass: card-level alignment (title/delete button) was fixed
-# in widgets/checklist_card.py itself, not here -- this screen only
-# arranges the top bar, scrollable list, and add bar around it.
-# Minor polish: add_bar padding tightened slightly and top_bar spacing
-# nudged for a bit more breathing room around the header text.
+# UI-only pass: header alignment matches Timer/Calendar/ChecklistDetail
+# (back button top-aligned, title nudged down via a spacer). The old
+# solid "+ New Checklist" card is replaced with a dashed-border bar
+# (retro/empty-state style) with a decorative left icon, a prompt
+# label, and a filled square "+" button on the right -- only that
+# button is actionable, calling the SAME open_new_checklist_popup()
+# as before. Two elements from the reference image (a pencil-edit
+# icon, a priority chip) were deliberately NOT added here -- they
+# belong to a single checklist's own header on the detail screen,
+# and have no equivalent action/data on this list screen.
 
 <ChecklistScreen>:
 
     MDBoxLayout:
         orientation: "vertical"
-        padding: dp(20), dp(28), dp(20), dp(20)     
-        spacing: dp(20) 
+        padding: dp(20)
+        spacing: dp(20)
 
         # top bar: back + title/subtitle
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
-            height: dp(56)
+            height: dp(64)
             spacing: dp(10)
 
             MDIconButton:
                 id: back_button
                 icon: "arrow-left"
                 theme_icon_color: "Custom"
+                pos_hint: {"top": 1}
                 on_release: root.go_back()
 
             MDBoxLayout:
                 orientation: "vertical"
+                pos_hint: {"top": 1}
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(10)
 
                 MDLabel:
                     id: header_label
                     text: "Checklists"
                     theme_text_color: "Custom"
                     font_style: "Title"
-                    role: "large"       
+                    role: "large"
                     bold: True
 
                 MDLabel:
@@ -64,23 +74,49 @@
                 size_hint_y: None
                 adaptive_height: True
 
-        # add bar: single full-width button that opens the
-        # "New Checklist" popup (title + optional category/priority)
-        MDCard:
+        # add bar: dashed-border row (matches the reference's
+        # "Add another item..." style) with a decorative left icon,
+        # a prompt label, and a filled square "+" button on the right.
+        MDBoxLayout:
             id: add_bar
-            theme_bg_color: "Custom"
-            orientation: "horizontal"
             size_hint_y: None
             height: dp(56)
-            padding: dp(4)
-            radius: [16]
-            elevation: 1
+            padding: dp(14), dp(4)
+            spacing: dp(10)
 
-            MDButton:
+            canvas.before:
+                Color:
+                    id: add_bar_border_color
+                    rgba: 0, 0, 0, 0.3
+                Line:
+                    rounded_rectangle: self.x, self.y, self.width, self.height, 16
+                    width: dp(1.2)
+                    dash_length: 6
+                    dash_offset: 4
+
+            MDIconButton:
+                icon: "plus"
+                theme_icon_color: "Custom"
+                disabled: True
+                size_hint: None, None
+                size: dp(28), dp(28)
+                pos_hint: {"center_y": 0.5}
+
+            MDLabel:
+                id: add_bar_label
+                text: "New Checklist"
+                theme_text_color: "Custom"
+                font_style: "Body"
+                role: "medium"
+                valign: "middle"
+
+            MDIconButton:
                 id: add_button
-                style: "text"
-                size_hint_x: 1
+                icon: "plus"
+                theme_icon_color: "Custom"
+                theme_bg_color: "Custom"
+                radius: [10]
+                size_hint: None, None
+                size: dp(40), dp(40)
+                pos_hint: {"center_y": 0.5}
                 on_release: root.open_new_checklist_popup()
-
-                MDButtonText:
-                    text: "+  New Checklist"
