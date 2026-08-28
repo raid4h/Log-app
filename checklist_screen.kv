@@ -6,16 +6,8 @@
 # Individual checklist items are NOT shown or added here anymore --
 # tapping a card navigates to checklist_detail_screen.kv for that.
 #
-# UI-only pass: header alignment matches Timer/Calendar/ChecklistDetail
-# (back button top-aligned, title nudged down via a spacer). The old
-# solid "+ New Checklist" card is replaced with a dashed-border bar
-# (retro/empty-state style) with a decorative left icon, a prompt
-# label, and a filled square "+" button on the right -- only that
-# button is actionable, calling the SAME open_new_checklist_popup()
-# as before. Two elements from the reference image (a pencil-edit
-# icon, a priority chip) were deliberately NOT added here -- they
-# belong to a single checklist's own header on the detail screen,
-# and have no equivalent action/data on this list screen.
+# UI-only pass: removed the decorative left "+" icon from add_bar --
+# only the filled square button on the right remains actionable.
 
 <ChecklistScreen>:
 
@@ -74,9 +66,8 @@
                 size_hint_y: None
                 adaptive_height: True
 
-        # add bar: dashed-border row (matches the reference's
-        # "Add another item..." style) with a decorative left icon,
-        # a prompt label, and a filled square "+" button on the right.
+        # add bar: dashed-border row with a prompt label and a filled
+        # square "+" button on the right only.
         MDBoxLayout:
             id: add_bar
             size_hint_y: None
@@ -93,14 +84,6 @@
                     width: dp(1.2)
                     dash_length: 6
                     dash_offset: 4
-
-            MDIconButton:
-                icon: "plus"
-                theme_icon_color: "Custom"
-                disabled: True
-                size_hint: None, None
-                size: dp(28), dp(28)
-                pos_hint: {"center_y": 0.5}
 
             MDLabel:
                 id: add_bar_label

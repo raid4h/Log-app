@@ -8,13 +8,10 @@ checklist's items on screens/checklist_detail_screen.py. A small
 delete button sits in the corner rather than requiring a separate
 screen/popup just to remove a checklist.
 
-UI-only pass, round 2: title and delete button were being centered by
-two DIFFERENT mechanisms (title via Label valign, delete button via
-AnchorLayout) -- those don't necessarily land on the same pixel row,
-which is what was still reading as misaligned even after round 1's
-padding fix. Both now use the same fixed-height-row + pos_hint
-center_y approach, so they're guaranteed to align on the same line.
-No logic changed.
+UI-only pass, round 4: top padding increased again (14 -> 18 -> 22dp)
+to push the title/trash row further down from the card's top edge,
+per your latest note. Alignment mechanism (AnchorLayout for both
+title and delete button) is unchanged -- spacing only.
 """
 
 from kivy.metrics import dp, sp
@@ -91,9 +88,11 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
     def __init__(self, **kwargs):
         kwargs.setdefault("orientation", "vertical")
         kwargs.setdefault("size_hint_y", None)
-        kwargs.setdefault("height", dp(100))
-        kwargs.setdefault("spacing", dp(6))
-        kwargs.setdefault("padding", [dp(16), dp(14), dp(12), dp(12)])
+        kwargs.setdefault("height", dp(108))
+        kwargs.setdefault("spacing", dp(10))
+        # top padding 18 -> 22dp: pushes the title/trash row further
+        # down from the card's top edge, per your latest note.
+        kwargs.setdefault("padding", [dp(16), dp(22), dp(12), dp(12)])
         super().__init__(**kwargs)
 
         with self.canvas.before:
@@ -105,15 +104,6 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
 
         top_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(34), spacing=dp(8))
 
-        # size_hint_y=None + explicit height + pos_hint center_y is
-        # the SAME centering mechanism the delete button below uses
-        # (via its AnchorLayout) -- guarantees both land on the exact
-        # same row instead of two different "centered" calculations
-        # potentially disagreeing by a few pixels.
-
-        top_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(34), spacing=dp(8))
-
-        # TITLE — now wrapped in an AnchorLayout, same mechanism as delete button
         title_anchor = AnchorLayout(size_hint=(1, 1), anchor_x="left", anchor_y="center")
         self.title_label = Label(
             text=self.title,
@@ -130,7 +120,6 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
         title_anchor.add_widget(self.title_label)
         top_row.add_widget(title_anchor)
 
-        # DELETE — wider anchor box so the button's real touch-target can't spill outside it
         delete_anchor = AnchorLayout(size_hint=(None, None), size=(dp(40), dp(34)), anchor_x="right", anchor_y="center")
         self.delete_btn = MDIconButton(
             icon="trash-can-outline",
