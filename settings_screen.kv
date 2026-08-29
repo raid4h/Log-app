@@ -7,17 +7,21 @@
         # top row: back arrow + title/subtitle
         MDBoxLayout:
             size_hint_y: None
-            height: dp(56)
+            height: self.minimum_height
+            adaptive_height: True
             spacing: dp(8)
 
             MDIconButton:
                 id: back_button
                 icon: "arrow-left"
                 theme_icon_color: "Custom"
+                pos_hint: {"top": 1}
                 on_release: root.go_back()
 
             MDBoxLayout:
                 orientation: "vertical"
+                size_hint_y: None
+                adaptive_height: True
 
                 MDLabel:
                     id: title_label
@@ -25,6 +29,9 @@
                     theme_text_color: "Custom"
                     font_style: "Title"
                     role: "medium"
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
                 MDLabel:
                     id: subtitle_label
@@ -32,6 +39,9 @@
                     theme_text_color: "Custom"
                     font_style: "Body"
                     role: "small"
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
         ScrollView:
             MDBoxLayout:
@@ -60,6 +70,7 @@
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
+                        text_size: self.width, None
 
                     ScrollView:
                         size_hint_y: None
@@ -126,6 +137,7 @@
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
+                        text_size: self.width, None
 
                     # -- export row --
                     MDBoxLayout:
@@ -139,6 +151,9 @@
                             theme_text_color: "Custom"
                             font_style: "Title"
                             role: "small"
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
                         MDIconButton:
                             id: export_chevron
@@ -159,6 +174,9 @@
                             theme_text_color: "Custom"
                             font_style: "Title"
                             role: "small"
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
                         MDIconButton:
                             id: import_chevron
@@ -184,15 +202,19 @@
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
+                        text_size: self.width, None
 
                     MDBoxLayout:
                         size_hint_y: None
-                        height: dp(56)
+                        height: self.minimum_height
+                        adaptive_height: True
                         spacing: dp(8)
 
                         MDBoxLayout:
                             orientation: "vertical"
                             size_hint_x: 1
+                            size_hint_y: None
+                            adaptive_height: True
 
                             MDLabel:
                                 id: privacy_row_label
@@ -201,6 +223,7 @@
                                 font_style: "Title"
                                 role: "small"
                                 adaptive_height: True
+                                text_size: self.width, None
 
                             MDLabel:
                                 id: privacy_row_subtitle
@@ -209,6 +232,7 @@
                                 font_style: "Body"
                                 role: "small"
                                 adaptive_height: True
+                                text_size: self.width, None
 
                         MDIconButton:
                             id: privacy_chevron
@@ -234,6 +258,7 @@
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
+                        text_size: self.width, None
 
                     MDBoxLayout:
                         size_hint_y: None
@@ -246,6 +271,9 @@
                             theme_text_color: "Custom"
                             font_style: "Title"
                             role: "small"
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
                         MDSwitch:
                             pos_hint: {"center_y": 0.5}
@@ -268,6 +296,7 @@
                         font_style: "Body"
                         role: "medium"
                         adaptive_height: True
+                        text_size: self.width, None
 
                     MDBoxLayout:
                         size_hint_y: None
@@ -280,6 +309,9 @@
                             theme_text_color: "Custom"
                             font_style: "Title"
                             role: "small"
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
                         MDIconButton:
                             id: privacy_policy_chevron
@@ -295,3 +327,4 @@
                         font_style: "Body"
                         role: "small"
                         adaptive_height: True
+                        text_size: self.width, None

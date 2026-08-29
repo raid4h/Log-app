@@ -8,6 +8,13 @@
 # partially or fully under the system gesture bar on Android 15+
 # devices, where taps in that zone get consumed by the OS's
 # back-swipe gesture instead of reaching the button.
+#
+# FIX: header_label/subtitle_label had no text_size and their box was
+# a fixed dp(56) -- same overflow risk fixed elsewhere (calendar,
+# checklist, timer, settings screens). checkbox_row was also a fixed
+# dp(48), which clips checkbox_label (the longest text on this
+# screen) if it wraps to two lines on a narrower phone -- switched to
+# adaptive_height.
 
 <TermsScreen>:
 
@@ -20,7 +27,8 @@
         MDBoxLayout:
             orientation: "vertical"
             size_hint_y: None
-            height: dp(56)
+            height: self.minimum_height
+            adaptive_height: True
 
             MDLabel:
                 id: header_label
@@ -28,6 +36,9 @@
                 theme_text_color: "Custom"
                 font_style: "Title"
                 role: "medium"
+                size_hint_y: None
+                adaptive_height: True
+                text_size: self.width, None
 
             MDLabel:
                 id: subtitle_label
@@ -35,6 +46,9 @@
                 theme_text_color: "Custom"
                 font_style: "Body"
                 role: "small"
+                size_hint_y: None
+                adaptive_height: True
+                text_size: self.width, None
 
         ScrollView:
             do_scroll_x: False
@@ -53,14 +67,16 @@
         MDBoxLayout:
             id: checkbox_row
             size_hint_y: None
-            height: dp(48)
+            height: self.minimum_height
+            adaptive_height: True
             spacing: dp(8)
+            padding: 0, dp(6)
 
             MDCheckbox:
                 id: agree_checkbox
                 size_hint: None, None
                 size: dp(32), dp(32)
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
                 on_active: root.on_checkbox_toggled(self.active)
 
             MDLabel:
@@ -69,6 +85,8 @@
                 theme_text_color: "Custom"
                 font_style: "Body"
                 role: "small"
+                size_hint_y: None
+                adaptive_height: True
                 text_size: self.width, None
                 valign: "middle"
 
