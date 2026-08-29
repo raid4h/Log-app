@@ -1,8 +1,5 @@
 <HomeScreen>:
     FloatLayout:
-        # ================================================================
-        # HOME CONTENT
-        # ================================================================
 
         ScrollView:
             id: home_scroll
@@ -16,8 +13,8 @@
                 orientation: "vertical"
                 size_hint_y: None
                 adaptive_height: True
-                padding: dp(24), dp(18), dp(24), dp(30)
-                spacing: dp(16)
+                padding: dp(30), dp(22), dp(30), dp(28)
+                spacing: dp(18)
 
                 # ========================================================
                 # HEADER
@@ -26,12 +23,12 @@
                 MDBoxLayout:
                     orientation: "horizontal"
                     size_hint_y: None
-                    height: dp(74)
+                    height: dp(72)
                     spacing: dp(12)
 
                     MDBoxLayout:
                         orientation: "vertical"
-                        spacing: dp(2)
+                        spacing: dp(3)
                         size_hint_x: 1
                         pos_hint: {"center_y": 0.5}
 
@@ -60,260 +57,128 @@
                         theme_icon_color: "Custom"
                         icon_color: root.header_text_color
                         size_hint: None, None
-                        size: dp(46), dp(46)
+                        size: dp(44), dp(44)
                         pos_hint: {"center_y": 0.5}
                         on_release: root.open_settings()
 
                 # ========================================================
-                # QUICK ACTIONS
+                # CHECKLIST QUICK ACTION
                 # ========================================================
 
-                MDBoxLayout:
-                    id: quick_actions
-                    orientation: "horizontal"
+                MDCard:
+                    id: checklist_quick_card
+                    theme_bg_color: "Custom"
+                    md_bg_color: root.card_primary_color
+                    radius: [20]
+                    elevation: 1
+                    shadow_softness: 10
+                    shadow_offset: (0, -1)
+                    ripple_behavior: True
                     size_hint_y: None
-                    height: dp(100)
-                    spacing: dp(9)
+                    height: dp(82)
+                    padding: dp(14)
+                    on_release: app.root.get_screen("home").open_checklist()
 
-                    # NOTE
                     QuickAction:
-                        id: notes_quick_card
-                        orientation: "vertical"
-                        spacing: dp(7)
-                        size_hint_x: 0.25
-                        padding: dp(7)
-                        on_release: app.root.get_screen("home").open_notes()
-
-                        MDCard:
-                            size_hint: 1, None
-                            height: dp(62)
-                            radius: [20]
-                            elevation: 0
-                            theme_bg_color: "Custom"
-                            md_bg_color: root.quick_note_bg
-                            on_release: app.root.get_screen("home").open_notes()
-
-                            AnchorLayout:
-                                anchor_x: "center"
-                                anchor_y: "center"
-
-                                MDCard:
-                                    size_hint: None, None
-                                    size: dp(42), dp(42)
-                                    radius: [15]
-                                    elevation: 0
-                                    theme_bg_color: "Custom"
-                                    md_bg_color: root.card_primary_color
-                                    on_release: app.root.get_screen("home").open_notes()
-
-                                    AnchorLayout:
-                                        anchor_x: "center"
-                                        anchor_y: "center"
-
-                                        MDIcon:
-                                            icon: "note-text-outline"
-                                            theme_text_color: "Custom"
-                                            text_color: root.header_accent_color
-                                            size_hint: None, None
-                                            size: dp(24), dp(24)
-
-                        MDLabel:
-                            text: "Note"
-                            font_style: "Label"
-                            role: "small"
-                            bold: True
-                            halign: "center"
-                            theme_text_color: "Custom"
-                            text_color: root.header_text_color
-                            adaptive_height: True
-
-                    # CHECKLIST
-                    QuickAction:
-                        id: checklist_quick_card
-                        orientation: "vertical"
-                        spacing: dp(7)
-                        size_hint_x: 0.25
-                        padding: dp(7)
+                        orientation: "horizontal"
+                        spacing: dp(14)
                         on_release: app.root.get_screen("home").open_checklist()
 
                         MDCard:
-                            size_hint: 1, None
-                            height: dp(62)
-                            radius: [20]
+                            size_hint: None, None
+                            size: dp(54), dp(54)
+                            radius: [16]
                             elevation: 0
                             theme_bg_color: "Custom"
                             md_bg_color: root.quick_checklist_bg
+                            pos_hint: {"center_y": 0.5}
                             on_release: app.root.get_screen("home").open_checklist()
 
                             AnchorLayout:
                                 anchor_x: "center"
                                 anchor_y: "center"
 
-                                MDCard:
+                                MDIcon:
+                                    icon: "checkbox-marked-outline"
+                                    theme_text_color: "Custom"
+                                    text_color: root.tile_accent_tasks_color
                                     size_hint: None, None
-                                    size: dp(42), dp(42)
-                                    radius: [15]
-                                    elevation: 0
-                                    theme_bg_color: "Custom"
-                                    md_bg_color: root.card_primary_color
-                                    on_release: app.root.get_screen("home").open_checklist()
+                                    size: dp(27), dp(27)
 
-                                    AnchorLayout:
-                                        anchor_x: "center"
-                                        anchor_y: "center"
-
-                                        MDIcon:
-                                            icon: "checkbox-marked-outline"
-                                            theme_text_color: "Custom"
-                                            text_color: root.tile_accent_tasks_color
-                                            size_hint: None, None
-                                            size: dp(24), dp(24)
-
-                        MDLabel:
-                            text: "Checklist"
-                            font_style: "Label"
-                            role: "small"
-                            bold: True
-                            halign: "center"
-                            theme_text_color: "Custom"
-                            text_color: root.header_text_color
+                        MDBoxLayout:
+                            orientation: "vertical"
+                            spacing: dp(2)
+                            size_hint_x: 1
                             adaptive_height: True
+                            pos_hint: {"center_y": 0.5}
 
-                    # EVENT
-                    QuickAction:
-                        id: event_quick_action
-                        orientation: "vertical"
-                        spacing: dp(7)
-                        size_hint_x: 0.25
-                        padding: dp(7)
-                        on_release: app.root.get_screen("home").route_quick_add("event")
+                            MDLabel:
+                                text: "Checklist"
+                                font_style: "Title"
+                                role: "small"
+                                bold: True
+                                theme_text_color: "Custom"
+                                text_color: root.header_text_color
+                                adaptive_height: True
 
-                        MDCard:
-                            size_hint: 1, None
-                            height: dp(62)
-                            radius: [20]
-                            elevation: 0
-                            theme_bg_color: "Custom"
-                            md_bg_color: root.quick_event_bg
-                            on_release: app.root.get_screen("home").route_quick_add("event")
+                            MDLabel:
+                                text: "View and manage your tasks"
+                                font_style: "Body"
+                                role: "small"
+                                theme_text_color: "Custom"
+                                text_color: root.header_secondary_color
+                                adaptive_height: True
+                                shorten: True
+                                shorten_from: "right"
 
-                            AnchorLayout:
-                                anchor_x: "center"
-                                anchor_y: "center"
+                        AnchorLayout:
+                            size_hint: None, 1
+                            width: dp(26)
+                            anchor_x: "center"
+                            anchor_y: "center"
 
-                                MDCard:
-                                    size_hint: None, None
-                                    size: dp(42), dp(42)
-                                    radius: [15]
-                                    elevation: 0
-                                    theme_bg_color: "Custom"
-                                    md_bg_color: root.card_primary_color
-                                    on_release: app.root.get_screen("home").route_quick_add("event")
-
-                                    AnchorLayout:
-                                        anchor_x: "center"
-                                        anchor_y: "center"
-
-                                        MDIcon:
-                                            icon: "calendar-outline"
-                                            theme_text_color: "Custom"
-                                            text_color: root.event_icon_color
-                                            size_hint: None, None
-                                            size: dp(24), dp(24)
-
-                        MDLabel:
-                            text: "Event"
-                            font_style: "Label"
-                            role: "small"
-                            bold: True
-                            halign: "center"
-                            theme_text_color: "Custom"
-                            text_color: root.header_text_color
-                            adaptive_height: True
-
-                    # FOCUS
-                    QuickAction:
-                        id: focus_quick_action
-                        orientation: "vertical"
-                        spacing: dp(7)
-                        size_hint_x: 0.25
-                        padding: dp(7)
-                        on_release: app.root.get_screen("home").open_study_session_popup()
-
-                        MDCard:
-                            size_hint: 1, None
-                            height: dp(62)
-                            radius: [20]
-                            elevation: 0
-                            theme_bg_color: "Custom"
-                            md_bg_color: root.quick_focus_bg
-                            on_release: app.root.get_screen("home").open_study_session_popup()
-
-                            AnchorLayout:
-                                anchor_x: "center"
-                                anchor_y: "center"
-
-                                MDCard:
-                                    size_hint: None, None
-                                    size: dp(42), dp(42)
-                                    radius: [15]
-                                    elevation: 0
-                                    theme_bg_color: "Custom"
-                                    md_bg_color: root.card_primary_color
-                                    on_release: app.root.get_screen("home").open_study_session_popup()
-
-                                    AnchorLayout:
-                                        anchor_x: "center"
-                                        anchor_y: "center"
-
-                                        MDIcon:
-                                            icon: "timer-outline"
-                                            theme_text_color: "Custom"
-                                            text_color: root.tile_accent_pomodoro_color
-                                            size_hint: None, None
-                                            size: dp(24), dp(24)
-
-                        MDLabel:
-                            text: "Focus"
-                            font_style: "Label"
-                            role: "small"
-                            bold: True
-                            halign: "center"
-                            theme_text_color: "Custom"
-                            text_color: root.header_text_color
-                            adaptive_height: True
+                            MDIcon:
+                                icon: "chevron-right"
+                                theme_text_color: "Custom"
+                                text_color: root.header_secondary_color
+                                size_hint: None, None
+                                size: dp(22), dp(22)
 
                 # ========================================================
                 # UP NEXT
                 # ========================================================
 
-                MDLabel:
-                    id: next_up_label
-                    text: "UP NEXT"
-                    font_style: "Label"
-                    role: "medium"
-                    bold: True
-                    theme_text_color: "Custom"
-                    text_color: root.header_secondary_color
-                    adaptive_height: True
-                    padding_y: dp(4)
+                MDBoxLayout:
+                    size_hint_y: None
+                    height: dp(24)
+
+                    MDLabel:
+                        id: next_up_label
+                        text: "UP NEXT"
+                        font_style: "Label"
+                        role: "medium"
+                        bold: True
+                        theme_text_color: "Custom"
+                        text_color: root.header_secondary_color
+                        adaptive_height: True
+                        pos_hint: {"center_y": 0.5}
 
                 MDCard:
                     id: next_up_card
                     theme_bg_color: "Custom"
-                    md_bg_color: root.card_primary_color
-                    radius: [22]
+                    md_bg_color: root.card_secondary_color
+                    radius: [20]
                     elevation: 1
-                    shadow_softness: 8
-                    shadow_offset: (0, -2)
+                    shadow_softness: 10
+                    shadow_offset: (0, -1)
                     ripple_behavior: True
                     size_hint_y: None
-                    height: dp(104)
-                    padding: dp(12)
+                    height: dp(98)
+                    padding: dp(14)
 
                     MDBoxLayout:
                         orientation: "horizontal"
-                        spacing: dp(12)
+                        spacing: dp(14)
 
                         MDCard:
                             size_hint: None, None
@@ -334,13 +199,11 @@
                                     theme_text_color: "Custom"
                                     text_color: root.tile_accent_pomodoro_color
                                     size_hint: None, None
-                                    size: dp(30), dp(30)
-                                    halign: "center"
-                                    valign: "middle"
+                                    size: dp(29), dp(29)
 
                         MDBoxLayout:
                             orientation: "vertical"
-                            spacing: dp(2)
+                            spacing: dp(3)
                             size_hint_x: 1
                             adaptive_height: True
                             pos_hint: {"center_y": 0.5}
@@ -371,8 +234,10 @@
                         MDBoxLayout:
                             orientation: "vertical"
                             size_hint_x: None
-                            width: dp(58)
-                            adaptive_height: True
+                            width: dp(62)
+                            size_hint_y: None
+                            height: dp(48)
+                            spacing: dp(-2)
                             pos_hint: {"center_y": 0.5}
 
                             MDLabel:
@@ -382,9 +247,10 @@
                                 theme_text_color: "Custom"
                                 text_color: root.header_text_color
                                 theme_font_size: "Custom"
-                                font_size: sp(25)
+                                font_size: sp(27)
                                 bold: True
-                                adaptive_height: True
+                                size_hint_y: None
+                                height: dp(31)
 
                             MDLabel:
                                 id: next_up_unit
@@ -394,7 +260,8 @@
                                 role: "small"
                                 theme_text_color: "Custom"
                                 text_color: root.header_secondary_color
-                                adaptive_height: True
+                                size_hint_y: None
+                                height: dp(15)
 
                 # ========================================================
                 # TODAY'S LOG
@@ -404,7 +271,6 @@
                     orientation: "horizontal"
                     size_hint_y: None
                     height: dp(28)
-                    padding: 0, dp(4), 0, 0
 
                     MDLabel:
                         id: todays_log_label
@@ -415,6 +281,7 @@
                         theme_text_color: "Custom"
                         text_color: root.header_secondary_color
                         adaptive_height: True
+                        pos_hint: {"center_y": 0.5}
 
                     MDLabel:
                         id: today_count_label
@@ -425,17 +292,19 @@
                         theme_text_color: "Custom"
                         text_color: root.header_secondary_color
                         adaptive_height: True
+                        pos_hint: {"center_y": 0.5}
 
                 MDCard:
                     id: today_plan_card
                     theme_bg_color: "Custom"
                     md_bg_color: root.card_primary_color
-                    radius: [22]
+                    radius: [20]
                     elevation: 1
-                    shadow_softness: 8
+                    shadow_softness: 10
+                    shadow_offset: (0, -1)
                     size_hint_y: None
-                    height: self.minimum_height + dp(12)
-                    padding: dp(8)
+                    height: self.minimum_height + dp(16)
+                    padding: dp(10)
 
                     MDBoxLayout:
                         id: today_plan_list
@@ -446,4 +315,4 @@
 
                 Widget:
                     size_hint_y: None
-                    height: dp(14)
+                    height: dp(18)

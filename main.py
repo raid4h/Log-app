@@ -32,7 +32,7 @@ from kivy.utils import platform
 from legal_content import TERMS_VERSION
 from services.legal_store import has_agreed_to_version
 
-from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY
+from theme.palettes import CARD_PRIMARY, TEXT_PRIMARY, TEXT_SECONDARY
 
 # Left at the default ('') deliberately. 'below_target' (tried
 # previously) pans the window once when a field GAINS focus, but
@@ -225,7 +225,7 @@ class LogApp(MDApp):
             self.nav_bar.opacity = 0
             self.nav_bar.disabled = True
         else:
-            self.nav_bar.height = dp(72)
+            self.nav_bar.height = dp(76)
             self.nav_bar.opacity = 1
             self.nav_bar.disabled = False
 
@@ -233,9 +233,9 @@ class LogApp(MDApp):
         nav = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
-            height=dp(72),
-            padding=(dp(8), dp(5), dp(8), dp(5)),
-            spacing=dp(4),
+            height=dp(76),
+            padding=(dp(10), dp(7), dp(10), dp(6)),
+            spacing=dp(6),
             theme_bg_color="Custom",
             md_bg_color=theme_manager.get_color(CARD_PRIMARY),
         )
@@ -258,7 +258,7 @@ class LogApp(MDApp):
             # ---------------------------------------------------------
             icon_box = MDAnchorLayout(
                 size_hint_y=None,
-                height=dp(38),
+                height=dp(40),
                 anchor_x="center",
                 anchor_y="center",
             )
@@ -268,7 +268,7 @@ class LogApp(MDApp):
                 theme_icon_color="Custom",
                 icon_color=theme_manager.get_color(TEXT_PRIMARY),
                 size_hint=(None, None),
-                size=(dp(42), dp(38)),
+                size=(dp(44), dp(40)),
                 # FIX: was setattr(self.sm, "current", screen_name),
                 # which set sm.current directly and never touched
                 # self.screen_history. That's why Back from a screen
@@ -294,7 +294,7 @@ class LogApp(MDApp):
                 theme_text_color="Custom",
                 text_color=theme_manager.get_color(TEXT_PRIMARY),
                 size_hint_y=None,
-                height=dp(17),
+                height=dp(18),
             )
 
             # ---------------------------------------------------------
@@ -302,7 +302,7 @@ class LogApp(MDApp):
             # ---------------------------------------------------------
             indicator = MDCard(
                 size_hint=(None, None),
-                size=(dp(24), dp(3)),
+                size=(dp(28), dp(3)),
                 pos_hint={"center_x": 0.5},
                 radius=[dp(2)],
                 elevation=0,
@@ -369,12 +369,10 @@ class LogApp(MDApp):
         # Update selected navigation item
         # -------------------------------------------------------------
         def update_active_item(screen_name):
-            accent = theme_manager.get_color(TEXT_PRIMARY)
-            secondary = theme_manager.get_color(CARD_PRIMARY)
-
-            # We use the theme's text color for the active state.
+            # Clear visual hierarchy: the selected destination uses the
+            # primary text color, while the rest remain intentionally muted.
             active_color = theme_manager.get_color(TEXT_PRIMARY)
-            inactive_color = theme_manager.get_color(TEXT_PRIMARY)
+            inactive_color = theme_manager.get_color(TEXT_SECONDARY)
 
             for item in nav_items:
                 is_active = item["screen"] == screen_name

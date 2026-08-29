@@ -416,8 +416,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             theme_manager.get_color(ACCENT)
         )
 
-        secondary_card_color = get_color_from_hex(
-            theme_manager.get_color(CARD_SECONDARY)
+        divider_color = get_color_from_hex(
+            theme_manager.get_color(BORDER)
         )
 
         # ====================================================
@@ -561,9 +561,9 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             # ------------------------------------------------
 
             row_height = (
-                dp(72)
+                dp(70)
                 if meta_text
-                else dp(62)
+                else dp(64)
             )
 
             # ------------------------------------------------
@@ -781,7 +781,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 divider.add_widget(
                     MDCard(
                         theme_bg_color="Custom",
-                        md_bg_color=secondary_card_color,
+                        md_bg_color=divider_color,
                         radius=[0],
                     )
                 )
