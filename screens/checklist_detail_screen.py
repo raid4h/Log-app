@@ -16,6 +16,15 @@
 #
 # No category anywhere in this feature -- the checklist's title is
 # already the categorization, per your last change.
+#
+# FIX: the running-total label previously lived inside top_bar's
+# fixed dp(64) title column (built and inserted from Python via
+# _ensure_total_label), sharing space with header_label/subtitle_label.
+# As the total's height changed with every item add/remove, that
+# fixed-height box got squeezed and the checklist title visibly
+# shifted position. It's now declared directly in the .kv file as
+# total_label, inside content_column (adaptive_height, not fixed),
+# so it can grow/shrink freely without moving anything in the header.
 
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
@@ -119,27 +128,11 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         "header_label":   ("text_color", TEXT_PRIMARY),
         "subtitle_label": ("text_color", TEXT_SECONDARY),
         "section_label":  ("text_color", TEXT_SECONDARY),
+        "total_label":    ("text_color", TEXT_PRIMARY),
     }
 
     def __init__(self, **kwargs):
-        # These must be set BEFORE super().__init__(**kwargs), not
-        # after. Kivy applies this screen's .kv rules and fires
-        # on_kv_post from *inside* the super().__init__() call --
-        # and ThemedScreenMixin's on_theme_applied (which reads
-        # self._total_label) can be triggered from there, before
-        # control ever returns to the rest of this method. Setting
-        # these after super().__init__() meant on_theme_applied could
-        # run against an object that didn't have _total_label at all
-        # yet -- caught silently by ThemedScreenMixin's error
-        # handling, but meaning the screen's initial theme never
-        # actually got applied.
         self._checked_expanded = False
-        # Not a KV id (no KV changes for this feature) -- built once,
-        # in code, and inserted under subtitle_label the same way
-        # NoteEditorScreen builds FormattingToolbar/preview widgets in
-        # Python rather than in .kv. THEME_MAP can't reach it since
-        # it has no id, so on_theme_applied below colors it by hand.
-        self._total_label = None
         super().__init__(**kwargs)
 
     def on_pre_enter(self, *args):
@@ -147,12 +140,12 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self.load_checklist()
 
     def on_theme_applied(self):
-        # getattr as a second safety net -- see the ordering note in
-        # __init__ above for why this could otherwise be called
-        # before _total_label exists.
-        total_label = getattr(self, "_total_label", None)
-        if total_label is not None:
-            total_label.color = theme_rgba(TEXT_PRIMARY)
+        # total_label is now a normal .kv id (THEME_MAP handles its
+        # color directly), so no manual coloring is needed here
+        # anymore -- kept as a no-op override in case a future,
+        # non-id-based widget needs the same hand-coloring pattern
+        # the old _total_label required.
+        pass
 
     def go_back(self):
         self.manager.current = "checklist"
@@ -219,7 +212,7 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         combined_text = "\n".join(item["text"] for item in items)
         _display_text, grand_total, uses_currency = process_calculator_lines(combined_text)
 
-        total_label = self._ensure_total_label()
+        total_label = self.ids.total_label
         if grand_total is None:
             total_label.text = ""
             total_label.height = 0
@@ -228,33 +221,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             total_label.text = f"Total: {currency_prefix}{format_calculated_number(grand_total)}"
             total_label.texture_update()
             total_label.height = total_label.texture_size[1] + dp(6)
-
-    def _ensure_total_label(self):
-        # Built once and cached -- inserted right under subtitle_label
-        # in the header's vertical box (subtitle_label.parent), since
-        # that box has no id of its own in KV and this KV file is
-        # otherwise left untouched. size_hint_y=None with a manually
-        # driven height (set in _update_total above) is what makes it
-        # collapse to nothing when there's no total to show, standing
-        # in for the adaptive_height a KV-defined label would get for
-        # free.
-        if self._total_label is None:
-            label = Label(
-                text="",
-                font_size=sp(13.5),
-                bold=True,
-                color=theme_rgba(TEXT_PRIMARY),
-                halign="left",
-                valign="middle",
-                size_hint_y=None,
-                height=0,
-                padding=(0, dp(2)),
-            )
-            label.bind(size=label.setter("text_size"))
-            parent = self.ids.subtitle_label.parent
-            parent.add_widget(label, index=len(parent.children) - 1)
-            self._total_label = label
-        return self._total_label
 
     def _build_empty_label(self):
         return MDLabel(

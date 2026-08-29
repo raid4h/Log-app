@@ -12,6 +12,14 @@
 # via a small spacer (matching the same header fix already applied to
 # Timer/Calendar), and the pencil button top-aligned to sit level with
 # the title text instead of the row's vertical center.
+#
+# FIX: total_label (the running-total for shopping-list-style
+# checklists) previously lived inside top_bar's fixed dp(64) title
+# column, sharing space with header_label/subtitle_label -- as its
+# height changed (items added/removed), the fixed box got squeezed
+# and the title visibly shifted position. Moved here, into
+# content_column (which is adaptive_height, not fixed), so it can
+# grow/shrink freely without affecting the header at all.
 
 <ChecklistDetailScreen>:
 
@@ -89,6 +97,18 @@
                     bold: True
                     adaptive_height: True
                     padding: [dp(2), 0]
+
+                MDLabel:
+                    id: total_label
+                    text: ""
+                    theme_text_color: "Custom"
+                    font_style: "Label"
+                    role: "large"
+                    bold: True
+                    size_hint_y: None
+                    height: 0
+                    text_size: self.width, None
+                    padding: [dp(2), dp(2)]
 
                 MDBoxLayout:
                     id: item_list
