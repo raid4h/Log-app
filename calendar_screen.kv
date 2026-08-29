@@ -13,7 +13,8 @@
 
         MDBoxLayout:
             size_hint_y: None
-            height: dp(64)
+            height: self.minimum_height
+            adaptive_height: True
 
             spacing: dp(6)
 
@@ -36,6 +37,9 @@
 
                 spacing: dp(0)
 
+                size_hint_y: None
+                adaptive_height: True
+
                 pos_hint: {"top": 1}
 
 
@@ -56,6 +60,10 @@
 
                     valign: "middle"
 
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
+
 
                 MDLabel:
                     id: subtitle_label
@@ -69,6 +77,10 @@
 
                     valign: "middle"
 
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
+
 
             Widget:
                 size_hint_x: 1
@@ -80,6 +92,8 @@
                 icon: "plus"
 
                 theme_icon_color: "Custom"
+
+                pos_hint: {"top": 1}
 
                 on_release:
                     root.open_add_popup()
@@ -157,6 +171,10 @@
                             bold: True
 
                             valign: "middle"
+
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
 
                         Widget:
@@ -260,6 +278,10 @@
                             bold: True
 
                             valign: "middle"
+
+                            shorten: True
+                            shorten_from: "right"
+                            text_size: self.width, None
 
 
                         MDLabel:

@@ -8,6 +8,13 @@
 #
 # UI-only pass: removed the decorative left "+" icon from add_bar --
 # only the filled square button on the right remains actionable.
+#
+# FIX: header_label/subtitle_label had no text_size, so on a narrow
+# phone screen the subtitle wrapped to two lines but its parent box
+# had no explicit height to grow into -- same overflow issue fixed
+# in calendar_screen.kv. Also added text_size to add_bar_label so a
+# longer prompt wraps/truncates instead of overflowing toward the
+# button.
 
 <ChecklistScreen>:
 
@@ -20,7 +27,8 @@
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
-            height: dp(64)
+            height: self.minimum_height
+            adaptive_height: True
             spacing: dp(10)
 
             MDIconButton:
@@ -32,6 +40,8 @@
 
             MDBoxLayout:
                 orientation: "vertical"
+                size_hint_y: None
+                adaptive_height: True
                 pos_hint: {"top": 1}
 
                 Widget:
@@ -45,6 +55,9 @@
                     font_style: "Title"
                     role: "large"
                     bold: True
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
                 MDLabel:
                     id: subtitle_label
@@ -52,6 +65,9 @@
                     theme_text_color: "Custom"
                     font_style: "Body"
                     role: "small"
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
         # scrollable list of checklist cards -- filled by
         # ChecklistScreen.load_checklists() in checklist_screen.py
@@ -92,6 +108,9 @@
                 font_style: "Body"
                 role: "medium"
                 valign: "middle"
+                shorten: True
+                shorten_from: "right"
+                text_size: self.width, None
 
             MDIconButton:
                 id: add_button

@@ -1,6 +1,12 @@
 # timer_screen.kv
 # Modern Pomodoro UI. All colors are applied from timer_screen.py via
 # ThemeManager + THEME_MAP / on_theme_applied — nothing here is hardcoded.
+#
+# FIX: header_label/subtitle_label had no text_size, and top_bar was a
+# fixed dp(64) -- on a narrow phone screen a wrapped subtitle would
+# overflow the header, same issue fixed in calendar_screen.kv and
+# checklist_screen.kv. Switched top_bar and its title column to
+# adaptive_height and gave both labels a proper text_size.
 
 <TimerScreen>:
 
@@ -20,7 +26,8 @@
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
-            height: dp(64)
+            height: self.minimum_height
+            adaptive_height: True
             spacing: dp(8)
 
             MDIconButton:
@@ -33,6 +40,8 @@
             MDBoxLayout:
                 orientation: "vertical"
                 size_hint_x: 1
+                size_hint_y: None
+                adaptive_height: True
                 pos_hint: {"top": 1}
 
                 Widget:
@@ -45,6 +54,9 @@
                     theme_text_color: "Custom"
                     font_style: "Title"
                     role: "medium"
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
                 MDLabel:
                     id: subtitle_label
@@ -52,6 +64,9 @@
                     theme_text_color: "Custom"
                     font_style: "Body"
                     role: "small"
+                    size_hint_y: None
+                    adaptive_height: True
+                    text_size: self.width, None
 
         # =====================================================
         # Centered cluster: hourglass, timer, session info,
