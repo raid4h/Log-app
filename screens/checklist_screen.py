@@ -11,25 +11,27 @@
 # this file only ever calls its existing functions, never edits it.
 #
 # UI-only pass: (1) the "New Checklist" popup's priority button text
-# ("No priority set" / a chosen priority) is now explicitly centered,
-# both horizontally and vertically, instead of relying on MDButtonText's
-# default layout, which was reading as left/top-leaning. (2) the empty
-# -state icon circle (clipboard glyph) is removed -- just the heading
-# and subtext remain, centered on their own.
+# ("No priority set" / a chosen priority) is explicitly centered, both
+# horizontally and vertically. (2) the empty-state icon circle
+# (clipboard glyph) is removed -- just the heading and subtext remain.
+# (3) the popup itself is restyled to match calendar_screen.py's Add
+# Reminder popup: plain bold left-aligned heading, no avatar icon
+# circle, no X close button, no divider line -- and the title field
+# switched from a plain TextInput to an outlined MDTextField, same
+# component and visual style Calendar's own popup uses, for a
+# consistent look between the two features' "add" dialogs.
 
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
 from kivymd.uix.button import MDButton, MDButtonText, MDIconButton
 from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.textfield import MDTextField, MDTextFieldHintText
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
-from kivy.uix.widget import Widget
 from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
-from kivy.graphics import Color, Rectangle
 from kivy.clock import Clock
 from kivy.metrics import dp, sp
 from kivy.utils import get_color_from_hex
@@ -55,7 +57,51 @@ def theme_rgba(token):
     return get_color_from_hex(theme_manager.get_color(token))
 
 
-def _build_themed_button(text, style, bg_token, text_token):
+def _themed_text_field(hint, text=""):
+    """
+    Outlined themed text field -- same component and visual style as
+    calendar_screen.py's own _themed_text_field, duplicated here
+    (rather than imported cross-screen) since screens are kept
+    independent of each other. Used for the "New Checklist" popup's
+    title input, so both features' "add" popups share one consistent
+    field look.
+    """
+    field = MDTextField(
+        text=text,
+        mode="outlined",
+        size_hint_y=None,
+        height=dp(52),
+        theme_bg_color="Custom",
+        md_bg_color=theme_rgba(CARD_SECONDARY),
+        line_color_normal=theme_rgba(BORDER),
+        line_color_focus=theme_rgba(ACCENT),
+        theme_text_color="Custom",
+        text_color_normal=theme_rgba(TEXT_PRIMARY),
+        text_color_focus=theme_rgba(TEXT_PRIMARY),
+    )
+
+    hint_label = MDTextFieldHintText(
+        text=hint,
+        theme_text_color="Custom",
+        text_color_normal=theme_rgba(TEXT_SECONDARY),
+        text_color_focus=theme_rgba(TEXT_SECONDARY),
+    )
+    field.add_widget(hint_label)
+
+    def _refresh(*_args):
+        field.md_bg_color = theme_rgba(CARD_SECONDARY)
+        field.line_color_normal = theme_rgba(BORDER)
+        field.line_color_focus = theme_rgba(ACCENT)
+        field.text_color_normal = theme_rgba(TEXT_PRIMARY)
+        field.text_color_focus = theme_rgba(TEXT_PRIMARY)
+        hint_label.text_color_normal = theme_rgba(TEXT_SECONDARY)
+        hint_label.text_color_focus = theme_rgba(TEXT_SECONDARY)
+
+    theme_manager.bind(theme_name=_refresh)
+    return field
+
+
+def _build_themed_button(text, style, bg_token, text_token, line_token=None):
     """
     Builds one MDButton + MDButtonText with its fill/text color set at
     CONSTRUCTION time -- confirmed on-device that setting an MDButton's
@@ -63,11 +109,11 @@ def _build_themed_button(text, style, bg_token, text_token):
     KivyMD's Material default on some later frame, for style="filled"/
     "tonal" buttons specifically. The caller is still responsible for
     scheduling a delayed re-apply (see _apply_popup_button_colors) as
-    a safety net, same pattern used in checklist_detail_screen.py.
+    a safety net.
 
-    halign/valign="center" set explicitly here -- MDButtonText's
-    default layout was reading as left/top-leaning inside the tonal
-    priority button, so this pins it dead-center both ways.
+    line_token, if given, sets a themed border color -- matches
+    calendar_screen.py's tonal buttons, which draw a BORDER-colored
+    outline.
     """
     button_text = MDButtonText(
         text=text,
@@ -76,15 +122,19 @@ def _build_themed_button(text, style, bg_token, text_token):
         halign="center",
         valign="middle",
     )
-    button = MDButton(
-        button_text,
+    kwargs = dict(
         style=style,
         theme_bg_color="Custom",
         md_bg_color=theme_manager.get_color(bg_token),
     )
+    if line_token is not None:
+        kwargs["theme_line_color"] = "Custom"
+        kwargs["line_color"] = theme_manager.get_color(line_token)
+    button = MDButton(button_text, **kwargs)
     button._theme_bg_token = bg_token
     button._theme_text_token = text_token
     button._theme_text_widget = button_text
+    button._theme_line_token = line_token
     return button
 
 
@@ -100,6 +150,9 @@ def _apply_popup_button_colors(*buttons):
         button.theme_bg_color = "Custom"
         button._theme_text_widget.text_color = theme_manager.get_color(button._theme_text_token)
         button._theme_text_widget.theme_text_color = "Custom"
+        if getattr(button, "_theme_line_token", None) is not None:
+            button.line_color = theme_manager.get_color(button._theme_line_token)
+            button.theme_line_color = "Custom"
 
 
 PRIORITY_OPTIONS = ("Low", "Medium", "High")
@@ -152,8 +205,6 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
             self.ids.checklist_list.add_widget(self._build_card(checklist))
 
     def _build_empty_state(self):
-        # Icon circle removed per your note -- just heading + subtext,
-        # centered on their own, no clipboard glyph above them.
         container = MDBoxLayout(
             orientation="vertical",
             spacing=dp(10),
@@ -206,103 +257,53 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
         delete_checklist(checklist_id)
         self.load_checklists()
 
-    # ── "New Checklist" popup, restyled to match Timer Settings ──
-
-    def _build_section_label(self, icon_name, text):
-        row = MDBoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(24))
-
-        icon = MDIconButton(
-            icon=icon_name, theme_icon_color="Custom",
-            icon_color=theme_rgba(ACCENT), disabled=True,
-            size_hint=(None, None), size=(dp(20), dp(20)),
-            pos_hint={"center_y": 0.5},
-        )
-        row.add_widget(icon)
-
-        label = Label(text=text, font_size=sp(12), bold=True, color=theme_rgba(TEXT_SECONDARY),
-                       halign="left", valign="middle", size_hint_x=1)
-        label.bind(size=label.setter("text_size"))
-        row.add_widget(label)
-
-        return row
+    # ── "New Checklist" popup -- matches calendar_screen.py's Add
+    # Reminder popup: plain card, bold left-aligned heading, no avatar
+    # icon, no close button, no divider. ──
 
     def open_new_checklist_popup(self):
         panel = MDCard(
             orientation="vertical",
+            padding=[dp(16), dp(16), dp(16), dp(16)],
+            spacing=dp(10),
+            size_hint=(1, 1),
             theme_bg_color="Custom",
-            md_bg_color=theme_manager.get_color(CARD_SECONDARY),
-            padding=dp(20),
-            spacing=dp(16),
-            radius=[26],
-            elevation=0,
+            md_bg_color=theme_rgba(CARD_PRIMARY),
+            radius=[18],
         )
 
-        # -- header: icon circle + title + close button --
-        header = MDBoxLayout(orientation="horizontal", spacing=dp(12), size_hint_y=None, height=dp(48))
-
-        icon_circle = MDCard(
-            theme_bg_color="Custom",
-            md_bg_color=theme_manager.get_color(CARD_PRIMARY),
-            size_hint=(None, None), size=(dp(48), dp(48)),
-            radius=[24],
-            pos_hint={"center_y": 0.5},
-        )
-        icon_circle.add_widget(MDIconButton(
-            icon="playlist-plus", theme_icon_color="Custom",
-            icon_color=theme_manager.get_color(ACCENT), disabled=True,
-            size_hint=(None, None), size=(dp(30), dp(30)),
-            pos_hint={"center_x": 0.5, "center_y": 0.5},
-        ))
-        header.add_widget(icon_circle)
-
-        title_label = Label(
-            text="New Checklist", font_size=sp(19), bold=True,
-            color=theme_rgba(TEXT_PRIMARY), halign="left", valign="middle", size_hint_x=1,
-        )
-        title_label.bind(size=title_label.setter("text_size"))
-        header.add_widget(title_label)
-
-        close_btn = MDIconButton(
-            icon="close", theme_icon_color="Custom",
-            icon_color=theme_rgba(TEXT_SECONDARY), pos_hint={"center_y": 0.5},
-        )
-        header.add_widget(close_btn)
-
-        panel.add_widget(header)
-
-        # -- divider --
-        divider = Widget(size_hint_y=None, height=dp(1))
-        with divider.canvas:
-            Color(*theme_rgba(BORDER))
-            divider_rect = Rectangle(pos=divider.pos, size=divider.size)
-
-        def _redraw_divider(inst, *_a, _rect=divider_rect):
-            _rect.pos = inst.pos
-            _rect.size = inst.size
-
-        divider.bind(pos=_redraw_divider, size=_redraw_divider)
-        panel.add_widget(divider)
-
-        # -- title input --
-        title_input = TextInput(
-            hint_text="Checklist title (e.g. Shopping List)",
-            multiline=False,
+        heading = Label(
+            text="New Checklist",
+            font_size=sp(18),
+            bold=True,
+            color=theme_rgba(TEXT_PRIMARY),
             size_hint_y=None,
-            height=dp(48),
-            background_color=theme_rgba(BACKGROUND),
-            foreground_color=theme_rgba(TEXT_PRIMARY),
-            hint_text_color=theme_rgba(TEXT_SECONDARY),
-            cursor_color=theme_rgba(ACCENT),
-            padding=[dp(10), dp(12), dp(10), dp(12)],
+            height=dp(32),
+            halign="left",
+            valign="middle",
         )
+        heading.bind(size=heading.setter("text_size"))
+        panel.add_widget(heading)
+
+        title_input = _themed_text_field("Checklist title (e.g. Shopping List)")
         panel.add_widget(title_input)
 
-        # -- priority (optional) --
-        panel.add_widget(self._build_section_label("flag-outline", "PRIORITY (OPTIONAL)"))
+        priority_label = Label(
+            text="Priority (optional)",
+            font_size=sp(12),
+            color=theme_rgba(TEXT_SECONDARY),
+            size_hint_y=None,
+            height=dp(22),
+            halign="left",
+            valign="middle",
+        )
+        priority_label.bind(size=priority_label.setter("text_size"))
+        panel.add_widget(priority_label)
 
         priority_state = {"value": ""}
         priority_btn = _build_themed_button(
-            "No priority set", style="tonal", bg_token=CARD_PRIMARY, text_token=TEXT_PRIMARY
+            "No priority set", style="tonal",
+            bg_token=CARD_SECONDARY, text_token=TEXT_PRIMARY, line_token=BORDER,
         )
         priority_btn.size_hint_y = None
         priority_btn.height = dp(48)
@@ -315,26 +316,16 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
         error_label.bind(size=error_label.setter("text_size"))
         panel.add_widget(error_label)
 
-        # -- cancel / create --
-        actions = MDBoxLayout(orientation="horizontal", spacing=dp(12), size_hint_y=None, height=dp(52))
+        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(48), spacing=dp(8))
 
-        cancel_text = MDButtonText(text="CANCEL", theme_text_color="Custom", text_color=theme_rgba(TEXT_PRIMARY))
-        cancel_btn = MDButton(
-            cancel_text, style="outlined", theme_line_color="Custom",
-            line_color=theme_rgba(BORDER),
-            size_hint_x=1, height=dp(52), radius=[26],
+        cancel_btn = _build_themed_button(
+            "Cancel", style="tonal", bg_token=CARD_SECONDARY, text_token=TEXT_PRIMARY, line_token=BORDER,
         )
         actions.add_widget(cancel_btn)
 
-        create_text = MDButtonText(text="CREATE", theme_text_color="Custom", text_color=theme_rgba(BUTTON_TEXT))
-        create_btn = MDButton(
-            create_text, style="filled", theme_bg_color="Custom", md_bg_color=theme_rgba(BUTTON),
-            size_hint_x=1, height=dp(52), radius=[26],
+        create_btn = _build_themed_button(
+            "Create", style="filled", bg_token=BUTTON, text_token=BUTTON_TEXT,
         )
-        create_btn._theme_bg_token = BUTTON
-        create_btn._theme_text_token = BUTTON_TEXT
-        create_btn._theme_text_widget = create_text
-        cancel_btn._theme_bg_token = None
         actions.add_widget(create_btn)
 
         panel.add_widget(actions)
@@ -342,15 +333,14 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
         popup = Popup(
             title="",
             content=panel,
-            size_hint=(0.9, None),
-            height=dp(430),
-            auto_dismiss=False,
+            size_hint=(0.94, None),
+            height=dp(360),
+            auto_dismiss=True,
             separator_height=0,
             background="",
-            background_color=(0, 0, 0, 0.5),
+            background_color=(0, 0, 0, 0),
         )
 
-        close_btn.bind(on_release=lambda *_a: popup.dismiss())
         cancel_btn.bind(on_release=lambda *_a: popup.dismiss())
 
         def set_priority_label():
@@ -386,11 +376,10 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
 
         popup.open()
 
-        # Safety-net re-apply -- priority_btn's text widget can be
-        # swapped by set_priority_label(), so it's only included in
-        # the delayed pass, not the immediate one.
-        _apply_popup_button_colors(create_btn)
-        Clock.schedule_once(lambda dt: _apply_popup_button_colors(create_btn, priority_btn), 0.3)
+        _apply_popup_button_colors(cancel_btn, create_btn)
+        Clock.schedule_once(
+            lambda dt: _apply_popup_button_colors(cancel_btn, create_btn, priority_btn), 0.3
+        )
 
     def _open_inline_priority_picker(self, priority_state, on_chosen):
         panel = MDCard(

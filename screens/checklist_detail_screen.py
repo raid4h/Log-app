@@ -25,6 +25,15 @@
 # shifted position. It's now declared directly in the .kv file as
 # total_label, inside content_column (adaptive_height, not fixed),
 # so it can grow/shrink freely without moving anything in the header.
+#
+# FIX: the "N Checked Items" collapsible header's expand/collapse
+# indicator was drawn as a raw Unicode triangle (\u25b8/\u25be) via a
+# plain Label -- the app's font doesn't include those glyphs, so it
+# rendered as a "tofu" placeholder box instead of an actual arrow.
+# Replaced with a real MDIconButton (chevron-right/chevron-down),
+# matching the same icon already used correctly for sub-item
+# expansion in widgets/checklist_item.py, for both a working icon and
+# a consistent expand/collapse visual language across the screen.
 
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
@@ -140,11 +149,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self.load_checklist()
 
     def on_theme_applied(self):
-        # total_label is now a normal .kv id (THEME_MAP handles its
-        # color directly), so no manual coloring is needed here
-        # anymore -- kept as a no-op override in case a future,
-        # non-id-based widget needs the same hand-coloring pattern
-        # the old _total_label required.
         pass
 
     def go_back(self):
@@ -204,11 +208,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self._update_total(active_items)
 
     def _update_total(self, items):
-        # get_items_by_checklist only returns top-level items -- that's
-        # deliberate here too, same as get_checklist_item_counts on the
-        # list screen: sub-item text (e.g. "2%" under "Milk") isn't
-        # priced separately in this feature, so only top-level rows
-        # feed the calculator.
         combined_text = "\n".join(item["text"] for item in items)
         _display_text, grand_total, uses_currency = process_calculator_lines(combined_text)
 
@@ -251,19 +250,9 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         )
         item_widget.on_toggle_complete = lambda checked, iid=item["id"]: self._toggle_item(iid, checked)
 
-        # Extra breathing room between the item card and its delete
-        # button, and a little right-side padding so the ✕ doesn't
-        # crowd the screen edge -- purely spacing, same widgets/logic.
         row = BoxLayout(orientation="horizontal", size_hint_y=None, spacing=dp(6), padding=[0, 0, dp(4), 0])
         row.add_widget(item_widget)
 
-        # AnchorLayout keeps the delete button pinned to the TOP of the
-        # row regardless of how tall item_widget grows when its
-        # sub-items are expanded -- a plain pos_hint on the button
-        # alone would center it against the whole row's height instead.
-        # A small top padding nudges the ✕ down so its visual center
-        # lines up with the checkbox/title line instead of the card's
-        # bare top edge.
         delete_anchor = AnchorLayout(
             size_hint=(None, 1), width=dp(36), anchor_x="center", anchor_y="top",
             padding=(0, dp(10), 0, 0),
@@ -286,9 +275,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
 
     def _toggle_item(self, item_id, checked):
         set_checked(item_id, checked)
-        # An item moves between the active list and the checked
-        # section the moment it's toggled, so the whole screen
-        # rebuilds rather than just flipping a strikethrough in place.
         self.load_items()
 
     def _delete_item(self, item_id):
@@ -343,12 +329,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self._new_item_input.bind(on_text_validate=lambda *_a: self._submit_new_item())
         row.add_widget(self._new_item_input)
 
-        # Right-side filled square "+" button, matching the reference
-        # image -- calls the SAME _submit_new_item() the Enter key
-        # already triggers, just a second way to reach it. Uses
-        # _build_themed_button's underlying color logic manually
-        # (MDIconButton doesn't take an MDButtonText child the way
-        # MDButton does) rather than introducing a new theming helper.
         add_btn = MDIconButton(
             icon="plus",
             theme_icon_color="Custom",
@@ -363,11 +343,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         add_btn.bind(on_release=lambda *_a: self._submit_new_item())
         row.add_widget(add_btn)
 
-        # Same delayed re-apply safety net used throughout this file's
-        # other buttons (see _apply_popup_button_colors docstring) --
-        # style-driven KivyMD fill colors have been observed reverting
-        # to Material defaults on a later frame even when set at
-        # construction.
         def _reapply_add_btn_theme(*_a):
             add_btn.md_bg_color = theme_manager.get_color(BUTTON)
             add_btn.icon_color = theme_manager.get_color(BUTTON_TEXT)
@@ -392,20 +367,25 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             size_hint_y=None,
             height=dp(42),
             spacing=dp(8),
-            padding=[dp(14), 0, dp(10), 0],
+            padding=[dp(10), 0, dp(10), 0],
         )
 
-        chevron = Label(
-            text="\u25be" if self._checked_expanded else "\u25b8",
-            font_size=sp(14),
-            color=theme_rgba(TEXT_SECONDARY),
+        chevron_btn = MDIconButton(
+            icon="chevron-down" if self._checked_expanded else "chevron-right",
+            theme_icon_color="Custom",
+            icon_color=theme_rgba(TEXT_SECONDARY),
             size_hint=(None, None),
-            size=(dp(18), dp(42)),
-            valign="middle",
-            halign="center",
+            size=(dp(30), dp(30)),
+            pos_hint={"center_y": 0.5},
         )
-        chevron.bind(size=chevron.setter("text_size"))
-        row.add_widget(chevron)
+        # The icon button consumes its own tap before it can reach the
+        # row's on_release below -- tapping directly on the arrow was
+        # doing nothing, only tapping the "N Checked Items" text
+        # worked. Binding the same toggle function here directly means
+        # both areas now do the same thing explicitly, rather than
+        # relying on one event bubbling up into the other.
+        chevron_btn.bind(on_release=lambda *_a: self._toggle_checked_section())
+        row.add_widget(chevron_btn)
 
         label = Label(
             text=f"{count} Checked Item{'s' if count != 1 else ''}",
@@ -491,12 +471,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         )
 
         def set_priority_label():
-            # Rebuilds the button's text widget (same approach the
-            # original code used) -- has to re-register it as
-            # priority_btn._theme_text_widget too, or a later
-            # _apply_popup_button_colors() call would still be
-            # pointing at the OLD (now-discarded) text widget instead
-            # of this new one.
             new_text = MDButtonText(
                 text=priority_state["value"] or "+ Priority (optional)",
                 theme_text_color="Custom",
@@ -535,10 +509,6 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         panel.add_widget(actions)
         popup.open()
 
-        # Safety-net re-apply -- see _apply_popup_button_colors
-        # docstring. priority_btn isn't included here since its text
-        # widget gets swapped out by set_priority_label() and this
-        # runs before the user could have triggered that anyway.
         _apply_popup_button_colors(cancel_btn, save_btn)
         Clock.schedule_once(
             lambda dt: _apply_popup_button_colors(cancel_btn, save_btn, priority_btn), 0.3

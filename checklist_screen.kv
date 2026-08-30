@@ -82,8 +82,14 @@
                 size_hint_y: None
                 adaptive_height: True
 
-        # add bar: dashed-border row with a prompt label and a filled
+                # add bar: dashed-border row with a prompt label and a filled
         # square "+" button on the right only.
+        #
+        # FIX: a leftover decorative "+" icon was still rendering on
+        # the left side of this row despite an earlier comment saying
+        # it had been removed -- confirmed non-functional (no
+        # on_release, purely decorative) and removed for real here.
+        # add_bar_label now starts flush against the row's left edge.
         MDBoxLayout:
             id: add_bar
             size_hint_y: None

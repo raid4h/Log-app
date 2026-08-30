@@ -2,9 +2,15 @@
 widgets/checklist_item.py
 
 Individual item/sub-item widgets used inside a single checklist's
-detail screen (screens/checklist_detail_screen.py). Visual-only pass:
-fixes the invisible expand chevron (icon_color was never set) and
-aligns checkbox/title/sub-items on consistent indentation.
+detail screen (screens/checklist_detail_screen.py).
+
+UI pass: checkboxes switched from a custom-drawn circle (CheckCircle)
+to the same square checkbox-marked/checkbox-blank-outline icon style
+already used by calendar_screen.py's EventRow, for visual consistency
+across the app -- square checkboxes read cleaner and more minimalist
+than circles here. Checked-item text no longer uses [s]...[/s]
+strikethrough markup -- dimmed color alone (TEXT_SECONDARY) now
+signals "done", matching a cleaner, less visually busy convention.
 
 Public API unchanged (text, checked, subtasks, on_toggle_complete,
 add_subtask) -- screens/checklist_detail_screen.py needs no edits.
@@ -12,12 +18,11 @@ add_subtask) -- screens/checklist_detail_screen.py needs no edits.
 
 from kivy.metrics import dp, sp
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, ObjectProperty, StringProperty
-from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Ellipse, Line, RoundedRectangle
+from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.utils import get_color_from_hex
 
 from kivymd.uix.button import MDIconButton
@@ -39,43 +44,21 @@ _ROW_SPACING = dp(10)
 _SUBITEM_INDENT = _MAIN_ROW_PADDING_LEFT + _EXPAND_BTN_WIDTH + _ROW_SPACING
 
 
-class CheckCircle(ButtonBehavior, Widget):
-    """Tappable circular checkbox, shared by ChecklistItem and SubChecklistItem."""
-
-    checked = BooleanProperty(False)
-    diameter = NumericProperty(dp(24))
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.size_hint = (None, None)
-        self.size = (self.diameter, self.diameter)
-        with self.canvas:
-            self._fill_color = Color(0, 0, 0, 0)
-            self._fill = Ellipse(pos=self.pos, size=self.size)
-            self._ring_color = Color(0, 0, 0, 0)
-            self._ring = Line(width=dp(1.4))
-        self.bind(
-            pos=self._redraw,
-            size=self._redraw,
-            diameter=self._sync_size,
-            checked=self._refresh_theme,
-        )
-        theme_manager.bind(theme_name=self._refresh_theme)
-        self._refresh_theme()
-
-    def _sync_size(self, *_args):
-        self.size = (self.diameter, self.diameter)
-
-    def _redraw(self, *_args):
-        self._fill.pos = self.pos
-        self._fill.size = self.size
-        self._ring.ellipse = (self.x, self.y, self.width, self.height)
-
-    def _refresh_theme(self, *_args):
-        accent = theme_rgba(ACCENT)
-        self._ring_color.rgba = accent
-        self._fill_color.rgba = accent if self.checked else (0, 0, 0, 0)
-        self._redraw()
+def _make_checkbox_button(checked, size_dp):
+    """
+    Builds one square checkbox icon button -- checkbox-marked when
+    checked, checkbox-blank-outline otherwise -- same icon pair and
+    color convention (ACCENT when checked, TEXT_SECONDARY otherwise)
+    as calendar_screen.py's EventRow, so checkboxes look and behave
+    identically across both features.
+    """
+    return MDIconButton(
+        icon="checkbox-marked" if checked else "checkbox-blank-outline",
+        theme_icon_color="Custom",
+        icon_color=theme_rgba(ACCENT) if checked else theme_rgba(TEXT_SECONDARY),
+        size_hint=(None, None),
+        size=(size_dp, size_dp),
+    )
 
 
 class SubChecklistItem(BoxLayout):
@@ -94,14 +77,12 @@ class SubChecklistItem(BoxLayout):
         kwargs.setdefault("padding", [_SUBITEM_INDENT, 0, dp(10), 0])
         super().__init__(**kwargs)
 
-        self.check = CheckCircle(diameter=dp(18))
-        self.check.checked = self.checked
+        self.check = _make_checkbox_button(self.checked, dp(22))
         self.check.bind(on_release=lambda *_a: self._toggle())
         self.check.pos_hint = {"center_y": 0.5}
         self.add_widget(self.check)
 
         self.label = Label(
-            markup=True,
             font_size=sp(12.5),
             halign="left",
             valign="middle",
@@ -115,8 +96,11 @@ class SubChecklistItem(BoxLayout):
         self._refresh()
 
     def _refresh(self, *_args):
-        self.check.checked = self.checked
-        self.label.text = f"[s]{self.text}[/s]" if self.checked else self.text
+        self.check.icon = "checkbox-marked" if self.checked else "checkbox-blank-outline"
+        self.check.icon_color = (
+            theme_rgba(ACCENT) if self.checked else theme_rgba(TEXT_SECONDARY)
+        )
+        self.label.text = self.text
         self.label.color = (
             theme_rgba(TEXT_SECONDARY) if self.checked else theme_rgba(TEXT_PRIMARY)
         )
@@ -193,21 +177,18 @@ class ChecklistItem(BoxLayout):
             size_hint=(None, None),
             size=(_EXPAND_BTN_WIDTH, _EXPAND_BTN_WIDTH),
             pos_hint={"center_y": 0.5},
-            halign="center",
-            valign="middle",
         )
         self.expand_btn.bind(
             on_release=lambda *_a: setattr(self, "expanded", not self.expanded)
         )
         row.add_widget(self.expand_btn)
 
-        self.check = CheckCircle(diameter=dp(24))
+        self.check = _make_checkbox_button(self.checked, dp(28))
         self.check.bind(on_release=lambda *_a: self._toggle_complete())
         self.check.pos_hint = {"center_y": 0.5}
         row.add_widget(self.check)
 
         self.title_label = Label(
-            markup=True,
             font_size=sp(14.5),
             halign="left",
             valign="middle",
@@ -234,8 +215,11 @@ class ChecklistItem(BoxLayout):
         self._update_card_canvas()
 
     def _refresh_main(self, *_args):
-        self.check.checked = self.checked
-        self.title_label.text = f"[s]{self.text}[/s]" if self.checked else self.text
+        self.check.icon = "checkbox-marked" if self.checked else "checkbox-blank-outline"
+        self.check.icon_color = (
+            theme_rgba(ACCENT) if self.checked else theme_rgba(TEXT_SECONDARY)
+        )
+        self.title_label.text = self.text
         self.title_label.color = (
             theme_rgba(TEXT_SECONDARY) if self.checked else theme_rgba(TEXT_PRIMARY)
         )

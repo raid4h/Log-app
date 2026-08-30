@@ -8,10 +8,11 @@ checklist's items on screens/checklist_detail_screen.py. A small
 delete button sits in the corner rather than requiring a separate
 screen/popup just to remove a checklist.
 
-UI-only pass, round 4: top padding increased again (14 -> 18 -> 22dp)
-to push the title/trash row further down from the card's top edge,
-per your latest note. Alignment mechanism (AnchorLayout for both
-title and delete button) is unchanged -- spacing only.
+UI-only pass, round 5: delete icon changed from "trash-can-outline" to
+"delete", matching the exact icon used by the Notes editor's own
+delete button (note_editor_screen.kv), for visual consistency across
+the app's delete actions. Everything else (padding, alignment, chip
+centering) unchanged from round 4.
 """
 
 from kivy.metrics import dp, sp
@@ -60,7 +61,7 @@ class _Chip(BoxLayout):
             halign="center",
             valign="middle",
         )
-        label.bind(size=label.setter("text_size"))
+        label.bind(size=lambda inst, val: setattr(inst, "text_size", val))
         self.add_widget(label)
         self.bind(pos=self._redraw, size=self._redraw)
 
@@ -90,8 +91,6 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
         kwargs.setdefault("size_hint_y", None)
         kwargs.setdefault("height", dp(108))
         kwargs.setdefault("spacing", dp(10))
-        # top padding 18 -> 22dp: pushes the title/trash row further
-        # down from the card's top edge, per your latest note.
         kwargs.setdefault("padding", [dp(16), dp(22), dp(12), dp(12)])
         super().__init__(**kwargs)
 
@@ -122,7 +121,7 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
 
         delete_anchor = AnchorLayout(size_hint=(None, None), size=(dp(40), dp(34)), anchor_x="right", anchor_y="center")
         self.delete_btn = MDIconButton(
-            icon="trash-can-outline",
+            icon="delete",
             theme_icon_color="Custom",
             style="standard",
             size_hint=(None, None),
