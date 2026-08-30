@@ -15,7 +15,7 @@ DEFAULT = {
     "card_primary":    "#F1E4D0",
     "card_secondary":  "#E8D8C0",
     "border":          "#D9C4A5",
-    "accent":          "#C8A97E",
+    "accent":          "#9C6B2E",  # deepened from #C8A97E -- old accent was nearly the same lightness as card_primary/card_secondary, so section labels (e.g. "Backup & Restore") were low-contrast/hard to read on either card.
     "text_secondary":  "#8A6F53",
     "button":          "#6B4A32",
     "text_primary":    "#3B2A1D",
@@ -24,18 +24,26 @@ DEFAULT = {
     "tile_accent_tasks":    "#2C4A7C",   # navy for tasks icon
 }
 
+# DARK theme — purple family restored per your preference, but
+# rebuilt with a proper Discord-style elevation ladder (each surface
+# level distinctly LIGHTER than the last, same convention as before)
+# and a corrected text_secondary. The previous purple dark theme's
+# real bug: text_secondary (#553A84) was DARKER than background
+# (#222238) -- backwards for "secondary text on a dark background,"
+# so it was nearly invisible in places. Fixed by making
+# text_secondary a light lavender-gray instead.
 DARK = {
-    "background":      "#222238",
-    "card_primary":    "#2A2945",
-    "card_secondary":  "#322F51",
-    "border":          "#39355C",
-    "accent":          "#474466",
-    "text_secondary":  "#553A84",
-    "button":          "#5C5493",
-    "text_primary":    "#B4ACBD",
-    "button_text":     "#222238",
-    "tile_accent_pomodoro": "#7FAF87",   # lighter green, readable on dark card
-    "tile_accent_tasks":    "#7D9FD1",   # lighter navy/periwinkle, readable on dark card
+    "background":      "#1A1826",  # darkest surface
+    "card_primary":    "#241F35",  # mid surface
+    "card_secondary":  "#2E2844",  # lightest surface -- main content level
+    "border":          "#3F3859",  # subtle purple-gray divider
+    "accent":          "#8B7FD1",  # light periwinkle-purple, Discord-blurple role but purple
+    "text_secondary":  "#B4ACC7",  # light lavender-gray -- always legible on every surface above
+    "button":          "#7B6CE0",  # saturated purple primary-action button
+    "text_primary":    "#F0EDF7",  # near-white with a faint purple tint
+    "button_text":     "#FFFFFF",
+    "tile_accent_pomodoro": "#3BA55C",   # clean green, readable on every dark surface
+    "tile_accent_tasks":    "#7D9FD1",   # lighter navy, as requested
 }
 
 # Floral theme (formerly the app's default) — periwinkle-lavender base
@@ -45,7 +53,7 @@ FLORAL = {
     "card_primary":    "#F8F5FC",
     "card_secondary":  "#F5C7DC",
     "border":          "#B9AEE8",
-    "accent":          "#F2A6B4",
+    "accent":          "#B23A6B",  # deepened from #F2A6B4 -- old accent nearly matched card_secondary's pink, so section labels (e.g. "Privacy") were washing out on that card.
     "text_secondary":  "#8A7FA8",
     "button":          "#D6567A",
     "text_primary":    "#4A3B6B",
