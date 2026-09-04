@@ -31,8 +31,8 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
         "matcha_button":     ("md_bg_color", BUTTON),
         "monochrome_button": ("md_bg_color", BUTTON),
 
-        # Backup & Restore -- Export/Import only. App is fully offline;
-        # no Google account, no cloud backup/restore.
+        # Backup & Restore -- folder-based export/import. App is fully
+        # offline; no Google account, no cloud backup/restore.
         "backup_card":          ("md_bg_color", CARD_PRIMARY),
         "backup_section_label": ("text_color", ACCENT),
         "export_row_label":     ("text_color", TEXT_PRIMARY),
@@ -90,14 +90,16 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
             size_hint_x=0.9,
         ).open()
 
-    # ── backup: export/import only (offline app, no cloud) ──
+    # ── backup: export/import as a FOLDER (backup.json + attachments/
+    # subfolder with real copied image files) -- offline app, no
+    # cloud. See services/manual_export.py for the actual folder I/O. ──
     def export_to_file(self):
-        print(">>> EXPORT TAPPED")
-        # NOTE: the exported file is PLAIN, UNENCRYPTED JSON -- anyone
-        # with access to it can read every note it contains.
-        from services.manual_export import export_backup_to_file, ExportCancelled
+        # NOTE: backup.json inside the exported folder is PLAIN,
+        # UNENCRYPTED JSON -- anyone with access to it can read every
+        # note it contains.
+        from services.manual_export import export_backup_to_folder, ExportCancelled
 
-        def on_success(file_path):
+        def on_success(folder_path):
             self._show_snackbar("Backup exported successfully.")
 
         def on_error(exc):
@@ -107,10 +109,10 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
                 return
             self._show_snackbar("Export failed. Please try again.")
 
-        export_backup_to_file(on_success, on_error)
+        export_backup_to_folder(on_success, on_error)
 
     def import_from_file(self):
-        from services.manual_export import import_backup_from_file, ImportCancelled
+        from services.manual_export import import_backup_from_folder, ImportCancelled
         from services.restore_engine import RestoreError
 
         def on_success():
@@ -127,7 +129,7 @@ class SettingsScreen(ThemedScreenMixin, MDScreen):
             else:
                 self._show_snackbar("Import failed. Please try again.")
 
-        import_backup_from_file(on_success, on_error)
+        import_backup_from_folder(on_success, on_error)
 
     # ── privacy ──
     def open_privacy_settings(self):

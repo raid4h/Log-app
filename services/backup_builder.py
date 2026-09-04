@@ -12,9 +12,24 @@
 # That's what lets a future version of the app -- one that's added
 # new fields nobody has today -- still know how to safely read an
 # older backup instead of guessing at what's missing.
+#
+# As of v4, this file is one piece of a FOLDER-based backup, not a
+# single file: build_backup_manifest() still returns just the JSON
+# data (this file never touches the filesystem beyond reading via
+# existing query functions), but each attachment record now carries a
+# "backup_filename" -- the name that attachment's actual image file
+# should be copied to/read from inside a "attachments/" subfolder
+# alongside backup.json. Actually COPYING those files (which differs
+# by platform -- plain shutil on desktop, ContentResolver/
+# DocumentsContract on Android's SAF folder tree) is
+# services/manual_export.py's job, not this file's -- this file only
+# decides WHAT the filename should be and exposes
+# get_attachment_source_path() so the caller can find the real bytes
+# to copy.
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 
 from database.notes_queries import get_all_notes
@@ -54,6 +69,13 @@ SCHEMA_VERSION = 2
 # every backup entirely).
 SCHEMA_VERSION = 3
 
+# v4: each attachment record now carries "backup_filename" -- the
+# name its actual image file is stored under inside a folder-based
+# backup's "attachments/" subfolder, so a restored device can find and
+# copy the real file back instead of only restoring a dangling
+# file_path reference to the ORIGINAL device's filesystem.
+SCHEMA_VERSION = 4
+
 # The app doesn't yet have real multi-user accounts (no
 # user_queries.py, no login screen) -- categories and tasks still
 # require a user_id today only because the schema has the column.
@@ -61,6 +83,11 @@ SCHEMA_VERSION = 3
 # editor already uses for DEFAULT_NOTEBOOK_ID. Update this the moment
 # a real user system exists.
 DEFAULT_USER_ID = 1
+
+# The subfolder name, inside a folder-based backup, that holds actual
+# copied attachment image files. Both manual_export.py (writing) and
+# restore_engine.py (reading) need to agree on this exact name.
+ATTACHMENTS_SUBFOLDER = "attachments"
 
 
 def _note_to_dict(row):
@@ -83,16 +110,49 @@ def _reminder_to_dict(row):
     return vars(Reminder(*row))
 
 
+def _attachment_backup_filename(attachment_id, source_path):
+    """
+    Deterministic filename an attachment's real file is stored under
+    inside the backup's attachments/ subfolder -- prefixed with the
+    attachment's own id so two attachments that happened to share an
+    original filename (e.g. two separately-picked "image.jpg" files)
+    never collide once copied into the same flat backup folder.
+    """
+    extension = os.path.splitext(source_path)[1] if source_path else ""
+    return f"{attachment_id}{extension}"
+
+
 def _attachment_to_dict(row):
     # No Attachment model class exists yet -- built as a plain dict
     # here. Column order matches the "attachments" table in db.py:
     # id, note_id, file_path, created_at.
+    attachment_id, note_id, file_path, created_at = row[0], row[1], row[2], row[3]
     return {
-        "id": row[0],
-        "note_id": row[1],
-        "file_path": row[2],
-        "created_at": row[3],
+        "id": attachment_id,
+        "note_id": note_id,
+        "file_path": file_path,
+        "created_at": created_at,
+        # New in v4 -- see module docstring.
+        "backup_filename": _attachment_backup_filename(attachment_id, file_path),
     }
+
+
+def get_attachment_source_path(attachment_dict):
+    """
+    Returns the real, absolute path to an attachment's image file on
+    THIS device, or None if that file no longer exists (e.g. it was
+    deleted/moved outside the app since the attachment record was
+    created). Callers (manual_export.py, when actually copying bytes
+    into a backup folder) should skip an attachment entirely rather
+    than fail the whole backup when this returns None -- a missing
+    source image shouldn't block backing up everything else.
+    """
+    file_path = attachment_dict.get("file_path")
+    if not file_path:
+        return None
+    if not os.path.isfile(file_path):
+        return None
+    return file_path
 
 
 def _collect_notes():
@@ -131,10 +191,11 @@ def _collect_calendar_events():
 def _collect_attachments(notes):
     # Same technique as _collect_reminders -- get_all_attachments()
     # needs a note_id, so we loop over every note and gather its
-    # attachments. This only backs up the ATTACHMENT RECORDS (id,
-    # file path, timestamp) -- the actual image files on disk in
-    # note_attachments/ are a separate concern for a later phase
-    # (uploading/copying binary files alongside this manifest).
+    # attachments. As of v4, this now also stamps each attachment
+    # with its backup_filename (see _attachment_to_dict) -- but this
+    # function still only returns METADATA, never touches or copies
+    # the actual image bytes. See get_attachment_source_path() and
+    # this module's docstring for how the real files get copied.
     attachments = []
     for note in notes:
         rows = get_all_attachments(note["id"])
@@ -177,8 +238,12 @@ def build_backup_manifest():
     """
     Builds and returns one complete manifest dictionary describing the
     current state of the app's data. Does not touch the network or the
-    filesystem -- this function is pure data assembly, which is what
-    makes it fully testable offline.
+    filesystem beyond reading via existing query functions -- this
+    function never writes anything and never copies attachment image
+    bytes; it only decides what EACH attachment's backup_filename
+    should be. See get_attachment_source_path() for finding the real
+    file to copy, and this module's docstring for the overall
+    folder-backup design.
     """
     notes = _collect_notes()
     categories = _collect_categories()
@@ -230,9 +295,10 @@ def manifest_to_json_bytes(manifest):
 
 def save_manifest_to_path(manifest, file_path):
     """
-    Writes a manifest dictionary to disk as a JSON file. Kept separate
-    from build_backup_manifest() so callers (manual export, Drive
-    upload) can build once and choose where it goes.
+    Writes a manifest dictionary to disk as a JSON file (backup.json,
+    inside a folder-based backup). Kept separate from
+    build_backup_manifest() so callers can build once and choose
+    where the JSON portion goes.
     """
     with open(file_path, "wb") as f:
         f.write(manifest_to_json_bytes(manifest))
