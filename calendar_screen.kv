@@ -3,13 +3,20 @@
     MDBoxLayout:
         orientation: "vertical"
 
-        padding: dp(16), dp(20), dp(16), dp(16)
+        padding: dp(16), dp(28), dp(16), dp(16)
         spacing: dp(14)
 
 
         # ==================================================================
         # HEADER
         # ==================================================================
+        # FIX: back_button/add_button were pos_hint top:1, anchoring them
+        # level with just the "Calendar" title line -- on a real Android
+        # screen this sat too close to the status bar / top edge. Top
+        # padding increased (dp(16) -> dp(28)) for breathing room, and
+        # both icon buttons switched to center_y:0.5 so they sit centered
+        # against the WHOLE title+subtitle block instead of just the top
+        # line -- visually lower, roughly level with the subtitle text.
 
         MDBoxLayout:
             size_hint_y: None
@@ -26,7 +33,7 @@
 
                 theme_icon_color: "Custom"
 
-                pos_hint: {"top": 1}
+                pos_hint: {"center_y": 0.5}
 
                 on_release:
                     root.go_back()
@@ -40,12 +47,7 @@
                 size_hint_y: None
                 adaptive_height: True
 
-                pos_hint: {"top": 1}
-
-
-                Widget:
-                    size_hint_y: None
-                    height: dp(10)
+                pos_hint: {"center_y": 0.5}
 
 
                 MDLabel:
@@ -93,7 +95,7 @@
 
                 theme_icon_color: "Custom"
 
-                pos_hint: {"top": 1}
+                pos_hint: {"center_y": 0.5}
 
                 on_release:
                     root.open_add_popup()
