@@ -15,21 +15,33 @@
 # in calendar_screen.kv. Also added text_size to add_bar_label so a
 # longer prompt wraps/truncates instead of overflowing toward the
 # button.
+#
+# FIX 2: header no longer matched timer_screen.py's Pomodoro header --
+# this screen used font_style "Title"/role "large" + bold:True and
+# dp(10) spacing, timer_screen.kv uses "Title"/role "medium" (not
+# bold) and dp(8) spacing, producing a visibly bigger/bolder title
+# and different back-arrow alignment side-by-side. Header structure
+# now matches timer_screen.kv's exactly (same font role, same
+# spacing, same spacer/pos_hint pattern for the back button). Top
+# padding also increased (dp(20) -> dp(16),dp(28),dp(16),dp(16)) so
+# the header sits lower and doesn't crowd a phone's status bar/notch,
+# matching the same fix already applied to calendar_screen.kv.
 
 <ChecklistScreen>:
 
     MDBoxLayout:
         orientation: "vertical"
-        padding: dp(20)
+        padding: dp(16), dp(28), dp(16), dp(16)
         spacing: dp(20)
 
-        # top bar: back + title/subtitle
+        # top bar: back + title/subtitle -- structure matches
+        # timer_screen.kv's top_bar exactly.
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
             height: self.minimum_height
             adaptive_height: True
-            spacing: dp(10)
+            spacing: dp(8)
 
             MDIconButton:
                 id: back_button
@@ -40,6 +52,7 @@
 
             MDBoxLayout:
                 orientation: "vertical"
+                size_hint_x: 1
                 size_hint_y: None
                 adaptive_height: True
                 pos_hint: {"top": 1}
@@ -53,8 +66,7 @@
                     text: "Checklists"
                     theme_text_color: "Custom"
                     font_style: "Title"
-                    role: "large"
-                    bold: True
+                    role: "medium"
                     size_hint_y: None
                     adaptive_height: True
                     text_size: self.width, None
@@ -82,14 +94,8 @@
                 size_hint_y: None
                 adaptive_height: True
 
-                # add bar: dashed-border row with a prompt label and a filled
+        # add bar: dashed-border row with a prompt label and a filled
         # square "+" button on the right only.
-        #
-        # FIX: a leftover decorative "+" icon was still rendering on
-        # the left side of this row despite an earlier comment saying
-        # it had been removed -- confirmed non-functional (no
-        # on_release, purely decorative) and removed for real here.
-        # add_bar_label now starts flush against the row's left edge.
         MDBoxLayout:
             id: add_bar
             size_hint_y: None
