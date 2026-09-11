@@ -121,7 +121,7 @@ class LogApp(MDApp):
         Builder.load_file("checklist_screen.kv")
         Builder.load_file("checklist_detail_screen.kv")
         Builder.load_file("privacy_settings_screen.kv")
-
+        Builder.load_file("terms_screen.kv")
         Builder.load_file("privacy_policy_screen.kv")
 
         self.sm = ScreenManager()
