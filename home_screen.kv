@@ -19,11 +19,16 @@
                 # ========================================================
                 # HEADER
                 # ========================================================
+                # FIX: replaced the time-of-day greeting ("Good
+                # afternoon" + date) with a static app title + tagline,
+                # per the new home screen layout. menu_button restyled
+                # from a hamburger to a gear icon -- same
+                # open_settings() call, no logic change.
 
                 MDBoxLayout:
                     orientation: "horizontal"
                     size_hint_y: None
-                    height: dp(72)
+                    height: dp(64)
                     spacing: dp(12)
 
                     MDBoxLayout:
@@ -33,8 +38,8 @@
                         pos_hint: {"center_y": 0.5}
 
                         MDLabel:
-                            id: greeting_label
-                            text: "Good afternoon"
+                            id: app_title_label
+                            text: "Log"
                             font_style: "Title"
                             role: "large"
                             bold: True
@@ -43,8 +48,8 @@
                             adaptive_height: True
 
                         MDLabel:
-                            id: date_label
-                            text: "Saturday, 15 August"
+                            id: tagline_label
+                            text: "Small steps. Big days."
                             font_style: "Body"
                             role: "small"
                             theme_text_color: "Custom"
@@ -53,7 +58,7 @@
 
                     MDIconButton:
                         id: menu_button
-                        icon: "menu"
+                        icon: "cog-outline"
                         theme_icon_color: "Custom"
                         icon_color: root.header_text_color
                         size_hint: None, None
@@ -62,67 +67,75 @@
                         on_release: root.open_settings()
 
                 # ========================================================
-                # CHECKLIST QUICK ACTION
+                # FEATURE CARDS: Calendar / Checklist / Notes
                 # ========================================================
+                # FIX: replaced the single full-width "Checklist" quick
+                # action with a 3-up row (Calendar, Checklist, Notes),
+                # each its own tinted card -- Timer is gone, so this is
+                # a clean three-way split rather than reusing the old
+                # single-row layout.
 
-                MDCard:
-                    id: checklist_quick_card
-                    theme_bg_color: "Custom"
-                    md_bg_color: root.card_primary_color
-                    radius: [20]
-                    elevation: 1
-                    shadow_softness: 10
-                    shadow_offset: (0, -1)
-                    ripple_behavior: True
+                MDBoxLayout:
+                    orientation: "horizontal"
                     size_hint_y: None
-                    height: dp(82)
-                    padding: dp(14)
-                    on_release: app.root.get_screen("home").open_checklist()
+                    height: dp(148)
+                    spacing: dp(12)
 
-                    QuickAction:
-                        orientation: "horizontal"
-                        spacing: dp(14)
-                        on_release: app.root.get_screen("home").open_checklist()
+                    # -- Calendar --
+                    MDCard:
+                        theme_bg_color: "Custom"
+                        md_bg_color: root.quick_event_bg
+                        radius: [20]
+                        elevation: 1
+                        shadow_softness: 10
+                        shadow_offset: (0, -1)
+                        ripple_behavior: True
+                        size_hint_x: 1
+                        padding: dp(14)
+                        on_release: app.root.get_screen("home").open_calendar()
 
-                        MDCard:
-                            size_hint: None, None
-                            size: dp(54), dp(54)
-                            radius: [16]
-                            elevation: 0
-                            theme_bg_color: "Custom"
-                            md_bg_color: root.quick_checklist_bg
-                            pos_hint: {"center_y": 0.5}
-                            on_release: app.root.get_screen("home").open_checklist()
+                        QuickAction:
+                            orientation: "vertical"
+                            spacing: dp(6)
+                            on_release: app.root.get_screen("home").open_calendar()
 
-                            AnchorLayout:
-                                anchor_x: "center"
-                                anchor_y: "center"
+                            MDIcon:
+                                icon: "calendar-outline"
+                                theme_text_color: "Custom"
+                                text_color: root.event_icon_color
+                                size_hint: None, None
+                                size: dp(30), dp(30)
+
+                            Widget:
+                                size_hint_y: 1
+
+                            MDBoxLayout:
+                                orientation: "horizontal"
+                                size_hint_y: None
+                                height: dp(22)
+                                spacing: dp(2)
+
+                                MDLabel:
+                                    text: "Calendar"
+                                    font_style: "Title"
+                                    role: "small"
+                                    bold: True
+                                    theme_text_color: "Custom"
+                                    text_color: root.header_text_color
+                                    adaptive_height: True
+                                    shorten: True
+                                    shorten_from: "right"
 
                                 MDIcon:
-                                    icon: "checkbox-marked-outline"
+                                    icon: "chevron-right"
                                     theme_text_color: "Custom"
-                                    text_color: root.tile_accent_tasks_color
+                                    text_color: root.header_text_color
                                     size_hint: None, None
-                                    size: dp(27), dp(27)
-
-                        MDBoxLayout:
-                            orientation: "vertical"
-                            spacing: dp(2)
-                            size_hint_x: 1
-                            adaptive_height: True
-                            pos_hint: {"center_y": 0.5}
+                                    size: dp(16), dp(16)
+                                    pos_hint: {"center_y": 0.5}
 
                             MDLabel:
-                                text: "Checklist"
-                                font_style: "Title"
-                                role: "small"
-                                bold: True
-                                theme_text_color: "Custom"
-                                text_color: root.header_text_color
-                                adaptive_height: True
-
-                            MDLabel:
-                                text: "View and manage your tasks"
+                                text: "View your dates and plans"
                                 font_style: "Body"
                                 role: "small"
                                 theme_text_color: "Custom"
@@ -131,21 +144,134 @@
                                 shorten: True
                                 shorten_from: "right"
 
-                        AnchorLayout:
-                            size_hint: None, 1
-                            width: dp(26)
-                            anchor_x: "center"
-                            anchor_y: "center"
+                    # -- Checklist --
+                    MDCard:
+                        theme_bg_color: "Custom"
+                        md_bg_color: root.quick_checklist_bg
+                        radius: [20]
+                        elevation: 1
+                        shadow_softness: 10
+                        shadow_offset: (0, -1)
+                        ripple_behavior: True
+                        size_hint_x: 1
+                        padding: dp(14)
+                        on_release: app.root.get_screen("home").open_checklist()
+
+                        QuickAction:
+                            orientation: "vertical"
+                            spacing: dp(6)
+                            on_release: app.root.get_screen("home").open_checklist()
 
                             MDIcon:
-                                icon: "chevron-right"
+                                icon: "checkbox-marked-outline"
+                                theme_text_color: "Custom"
+                                text_color: root.tile_accent_tasks_color
+                                size_hint: None, None
+                                size: dp(30), dp(30)
+
+                            Widget:
+                                size_hint_y: 1
+
+                            MDBoxLayout:
+                                orientation: "horizontal"
+                                size_hint_y: None
+                                height: dp(22)
+                                spacing: dp(2)
+
+                                MDLabel:
+                                    text: "Checklist"
+                                    font_style: "Title"
+                                    role: "small"
+                                    bold: True
+                                    theme_text_color: "Custom"
+                                    text_color: root.header_text_color
+                                    adaptive_height: True
+                                    shorten: True
+                                    shorten_from: "right"
+
+                                MDIcon:
+                                    icon: "chevron-right"
+                                    theme_text_color: "Custom"
+                                    text_color: root.header_text_color
+                                    size_hint: None, None
+                                    size: dp(16), dp(16)
+                                    pos_hint: {"center_y": 0.5}
+
+                            MDLabel:
+                                text: "Track your tasks"
+                                font_style: "Body"
+                                role: "small"
                                 theme_text_color: "Custom"
                                 text_color: root.header_secondary_color
+                                adaptive_height: True
+                                shorten: True
+                                shorten_from: "right"
+
+                    # -- Notes --
+                    MDCard:
+                        theme_bg_color: "Custom"
+                        md_bg_color: root.quick_note_bg
+                        radius: [20]
+                        elevation: 1
+                        shadow_softness: 10
+                        shadow_offset: (0, -1)
+                        ripple_behavior: True
+                        size_hint_x: 1
+                        padding: dp(14)
+                        on_release: app.root.get_screen("home").open_notes()
+
+                        QuickAction:
+                            orientation: "vertical"
+                            spacing: dp(6)
+                            on_release: app.root.get_screen("home").open_notes()
+
+                            MDIcon:
+                                icon: "note-text-outline"
+                                theme_text_color: "Custom"
+                                text_color: root.header_accent_color
                                 size_hint: None, None
-                                size: dp(22), dp(22)
+                                size: dp(30), dp(30)
+
+                            Widget:
+                                size_hint_y: 1
+
+                            MDBoxLayout:
+                                orientation: "horizontal"
+                                size_hint_y: None
+                                height: dp(22)
+                                spacing: dp(2)
+
+                                MDLabel:
+                                    text: "Notes"
+                                    font_style: "Title"
+                                    role: "small"
+                                    bold: True
+                                    theme_text_color: "Custom"
+                                    text_color: root.header_text_color
+                                    adaptive_height: True
+                                    shorten: True
+                                    shorten_from: "right"
+
+                                MDIcon:
+                                    icon: "chevron-right"
+                                    theme_text_color: "Custom"
+                                    text_color: root.header_text_color
+                                    size_hint: None, None
+                                    size: dp(16), dp(16)
+                                    pos_hint: {"center_y": 0.5}
+
+                            MDLabel:
+                                text: "Capture your thoughts"
+                                font_style: "Body"
+                                role: "small"
+                                theme_text_color: "Custom"
+                                text_color: root.header_secondary_color
+                                adaptive_height: True
+                                shorten: True
+                                shorten_from: "right"
 
                 # ========================================================
-                # UP NEXT
+                # UP NEXT -- unchanged
                 # ========================================================
 
                 MDBoxLayout:
@@ -264,7 +390,7 @@
                                 height: dp(15)
 
                 # ========================================================
-                # TODAY'S LOG
+                # TODAY'S LOG -- unchanged
                 # ========================================================
 
                 MDBoxLayout:

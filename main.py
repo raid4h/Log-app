@@ -160,10 +160,10 @@ class LogApp(MDApp):
         # The bottom nav bar sits OUTSIDE the ScreenManager (it's a
         # sibling in RootLayout, always on screen regardless of which
         # screen is current) -- so without this, a user on "terms"
-        # could just tap Home/Calendar/Notes and bypass the
-        # agreement gate entirely, never having agreed to anything.
-        # Binding to sm.current keeps the nav bar's visibility in sync
-        # with whatever screen is actually showing, closing that gap.
+        # could just tap the nav button and bypass the agreement gate
+        # entirely, never having agreed to anything. Binding to
+        # sm.current keeps the nav bar's visibility in sync with
+        # whatever screen is actually showing, closing that gap.
         self.sm.bind(current=self._on_screen_changed)
         self._update_nav_visibility(self.sm.current)
         Clock.schedule_interval(self._check_notifications, 30)
@@ -230,6 +230,12 @@ class LogApp(MDApp):
             self.nav_bar.disabled = False
 
     def build_bottom_nav(self):
+        # FIX: simplified to a single "Logs" button -- Calendar,
+        # Checklist, and Notes are now reached via the three feature
+        # cards on the Home screen itself, and Settings moved to the
+        # gear icon in Home's header. The bottom nav's only remaining
+        # job is "go back to Home", labeled "Logs" to match the new
+        # app-name branding.
         nav = MDBoxLayout(
             orientation="horizontal",
             size_hint_y=None,
@@ -336,24 +342,8 @@ class LogApp(MDApp):
         nav.add_widget(
             make_nav_button(
                 "home-outline",
-                "Home",
+                "Logs",
                 "home"
-            )
-        )
-
-        nav.add_widget(
-            make_nav_button(
-                "calendar-outline",
-                "Calendar",
-                "calendar"
-            )
-        )
-
-        nav.add_widget(
-            make_nav_button(
-                "notebook-outline",
-                "Notes",
-                "notes"
             )
         )
 

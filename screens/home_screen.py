@@ -142,9 +142,9 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
     Small top-of-home action.
 
     The KV file uses root.open_notes(), root.open_checklist(),
-    root.route_quick_add(), etc. Because `root` inside a
-    QuickAction block refers to QuickAction itself, these proxy
-    methods forward the request to HomeScreen.
+    root.open_calendar(), root.route_quick_add(), etc. Because
+    `root` inside a QuickAction block refers to QuickAction itself,
+    these proxy methods forward the request to HomeScreen.
     """
 
     def _get_home(self):
@@ -169,6 +169,12 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
 
         if home:
             home.open_checklist()
+
+    def open_calendar(self):
+        home = self._get_home()
+
+        if home:
+            home.open_calendar()
 
     def route_quick_add(self, kind):
         home = self._get_home()
@@ -195,7 +201,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
     tile_accent_tasks_color = ListProperty([0, 0, 0, 1])
 
-    # Event gets its own color from TEXT_SECONDARY
+    # Event/Calendar gets its own color from TEXT_SECONDARY
     event_icon_color = ListProperty([0, 0, 0, 1])
 
     card_primary_color = ListProperty([1, 1, 1, 1])
@@ -203,8 +209,11 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
     fab_icon_color = ListProperty([1, 1, 1, 1])
 
     # ========================================================
-    # QUICK ACTION TILE BACKGROUNDS
+    # QUICK ACTION / FEATURE CARD BACKGROUNDS
     # ========================================================
+    # Reused directly by the three top feature cards (Calendar,
+    # Checklist, Notes) -- each already has its own distinct tint,
+    # so no new color properties were needed for the new layout.
 
     quick_note_bg = ListProperty([0, 0, 0, 1])
     quick_checklist_bg = ListProperty([0, 0, 0, 1])
@@ -231,8 +240,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         "self": ("md_bg_color", BACKGROUND),
         "drawer_layout": ("md_bg_color", BACKGROUND),
 
-        "greeting_label": ("text_color", TEXT_PRIMARY),
-        "date_label": ("text_color", TEXT_SECONDARY),
+        "app_title_label": ("text_color", TEXT_PRIMARY),
+        "tagline_label": ("text_color", TEXT_SECONDARY),
         "menu_button": ("icon_color", TEXT_PRIMARY),
 
         "next_up_label": ("text_color", TEXT_SECONDARY),
@@ -248,7 +257,9 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
         self.apply_theme()
 
-        self.set_greeting()
+        # Header is now a static app title + tagline (set directly
+        # in home_screen.kv) rather than a time-of-day greeting, so
+        # there's no per-visit header text to compute here anymore.
 
         # Rebuild the remaining Home sections from the database
         # whenever Home becomes visible.
@@ -285,8 +296,8 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 theme_manager.get_color(TILE_ACCENT_TASKS)
             )
 
-            # Event intentionally uses TEXT_SECONDARY so it remains
-            # visually distinct from Note.
+            # Event/Calendar intentionally uses TEXT_SECONDARY so it
+            # remains visually distinct from Note.
             self.event_icon_color = get_color_from_hex(
                 theme_manager.get_color(TEXT_SECONDARY)
             )
@@ -304,7 +315,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             )
 
             # ------------------------------------------------
-            # QUICK ACTION TILE BACKGROUNDS
+            # FEATURE CARD BACKGROUNDS (Calendar / Checklist / Notes)
             # ------------------------------------------------
 
             self.quick_note_bg = _tint(
@@ -333,29 +344,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         except Exception:
             # Prevent early theme application from crashing the screen.
             pass
-
-    # ========================================================
-    # GREETING
-    # ========================================================
-
-    def set_greeting(self):
-
-        hour = datetime.now().hour
-
-        if hour < 12:
-            greeting = "Good morning"
-
-        elif hour < 18:
-            greeting = "Good afternoon"
-
-        else:
-            greeting = "Good evening"
-
-        self.ids.greeting_label.text = greeting
-
-        self.ids.date_label.text = datetime.now().strftime(
-            "%A, %d %B"
-        )
 
     # ========================================================
     # TODAY'S PLAN
@@ -1077,7 +1065,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         )
 
     # ========================================================
-    # QUICK ACTIONS
+    # FEATURE CARD ACTIONS (Calendar / Checklist / Notes)
     # ========================================================
 
     def open_notes(self):
@@ -1096,6 +1084,12 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
         self.manager.current = (
             "checklist"
+        )
+
+    def open_calendar(self):
+
+        self.manager.current = (
+            "calendar"
         )
 
     # ========================================================
