@@ -31,7 +31,6 @@ from theme.palettes import (
     BORDER,
     BUTTON,
     BUTTON_TEXT,
-    TILE_ACCENT_POMODORO,
     TILE_ACCENT_TASKS,
 )
 
@@ -40,9 +39,7 @@ from widgets.dashboard_tile import DashboardTile
 
 from database.planner_queries import (
     get_today_tasks,
-    get_continue_studying,
     get_next_event,
-    create_study_task,
     get_task_detail,
 )
 
@@ -58,7 +55,6 @@ from services.checklist_store import (
 # ============================================================
 
 ACTIVITY_ICONS = {
-    "study": "brain",
     "event": "calendar-outline",
     "task": "checkbox-marked-outline",
     "shopping": "cart-outline",
@@ -180,12 +176,6 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
         if home:
             home.route_quick_add(kind)
 
-    def open_study_session_popup(self):
-        home = self._get_home()
-
-        if home:
-            home.open_study_session_popup()
-
 
 # ============================================================
 # HOME SCREEN
@@ -204,7 +194,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
     header_accent_color = ListProperty([0, 0, 0, 1])
 
     tile_accent_tasks_color = ListProperty([0, 0, 0, 1])
-    tile_accent_pomodoro_color = ListProperty([0, 0, 0, 1])
 
     # Event gets its own color from TEXT_SECONDARY
     event_icon_color = ListProperty([0, 0, 0, 1])
@@ -220,7 +209,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
     quick_note_bg = ListProperty([0, 0, 0, 1])
     quick_checklist_bg = ListProperty([0, 0, 0, 1])
     quick_event_bg = ListProperty([0, 0, 0, 1])
-    quick_focus_bg = ListProperty([0, 0, 0, 1])
 
     # ========================================================
     # INIT
@@ -233,7 +221,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             on_kv_post=lambda *x: self.apply_theme()
         )
 
-        self._continue_studying_task_id = None
         self._next_event_id = None
 
     # ========================================================
@@ -298,10 +285,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 theme_manager.get_color(TILE_ACCENT_TASKS)
             )
 
-            self.tile_accent_pomodoro_color = get_color_from_hex(
-                theme_manager.get_color(TILE_ACCENT_POMODORO)
-            )
-
             # Event intentionally uses TEXT_SECONDARY so it remains
             # visually distinct from Note.
             self.event_icon_color = get_color_from_hex(
@@ -336,11 +319,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
             self.quick_event_bg = _tint(
                 self.event_icon_color,
-                self.card_secondary_color,
-            )
-
-            self.quick_focus_bg = _tint(
-                self.tile_accent_pomodoro_color,
                 self.card_secondary_color,
             )
 
@@ -515,17 +493,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                     f"{'s' if note_count != 1 else ''}"
                 )
 
-            if task.get("pomodoro_completed"):
-
-                focus_count = task[
-                    "pomodoro_completed"
-                ]
-
-                meta_parts.append(
-                    f"{focus_count} focus"
-                    f"{' sessions' if focus_count != 1 else ' session'}"
-                )
-
             meta_text = " · ".join(
                 meta_parts
             )
@@ -594,14 +561,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 icon_color = get_color_from_hex(
                     theme_manager.get_color(
                         TILE_ACCENT_TASKS
-                    )
-                )
-
-            elif kind == "study":
-
-                icon_color = get_color_from_hex(
-                    theme_manager.get_color(
-                        TILE_ACCENT_POMODORO
                     )
                 )
 
@@ -826,17 +785,7 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             "activity_type"
         ]
 
-        if activity_type == "study":
-
-            timer = self.manager.get_screen(
-                "timer"
-            )
-
-            timer.current_task_id = task_id
-
-            self.manager.current = "timer"
-
-        elif activity_type == "shopping":
+        if activity_type == "shopping":
 
             editor = self.manager.get_screen(
                 "note_editor"
@@ -1150,266 +1099,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
         )
 
     # ========================================================
-    # STUDY SESSION POPUP
-    # ========================================================
-
-    def open_study_session_popup(self):
-
-        bg_color = get_color_from_hex(
-            theme_manager.get_color(
-                CARD_PRIMARY
-            )
-        )
-
-        card = MDCard(
-            orientation="vertical",
-            spacing=dp(15),
-            padding=dp(20),
-            radius=[18],
-            size_hint=(None, None),
-            size=(dp(360), dp(420)),
-            theme_bg_color="Custom",
-            md_bg_color=bg_color,
-        )
-
-        title = MDLabel(
-            text="New Study Session",
-            font_style="Title",
-            role="medium",
-            adaptive_height=True,
-        )
-
-        subject = MDTextField(
-            hint_text="Subject"
-        )
-
-        goal = MDTextField(
-            hint_text="Goal"
-        )
-
-        duration = MDTextField(
-            hint_text="Duration (minutes)",
-            text="25"
-        )
-
-        start_now = MDCheckbox(
-            active=True
-        )
-
-        row = MDBoxLayout(
-            orientation="horizontal",
-            spacing=dp(10),
-            adaptive_height=True,
-        )
-
-        row.add_widget(
-            start_now
-        )
-
-        row.add_widget(
-            MDLabel(
-                text="Start immediately",
-                adaptive_height=True,
-            )
-        )
-
-        button_row = MDBoxLayout(
-            spacing=dp(10),
-            adaptive_height=True,
-        )
-
-        cancel_btn = MDButton(
-            MDButtonText(
-                text="Cancel"
-            ),
-            style="outlined",
-        )
-
-        create_btn = MDButton(
-            MDButtonText(
-                text="Create"
-            ),
-            style="filled",
-        )
-
-        button_row.add_widget(
-            cancel_btn
-        )
-
-        button_row.add_widget(
-            create_btn
-        )
-
-        card.add_widget(
-            title
-        )
-
-        card.add_widget(
-            MDLabel(
-                text="Subject",
-                adaptive_height=True,
-                font_style="Label",
-                role="large",
-            )
-        )
-
-        card.add_widget(
-            subject
-        )
-
-        card.add_widget(
-            MDLabel(
-                text="Goal",
-                adaptive_height=True,
-                font_style="Label",
-                role="large",
-            )
-        )
-
-        card.add_widget(
-            goal
-        )
-
-        card.add_widget(
-            MDLabel(
-                text="Duration (minutes)",
-                adaptive_height=True,
-                font_style="Label",
-                role="large",
-            )
-        )
-
-        card.add_widget(
-            duration
-        )
-
-        card.add_widget(
-            row
-        )
-
-        card.add_widget(
-            button_row
-        )
-
-        modal = ModalView(
-            auto_dismiss=False,
-            background_color=(
-                0,
-                0,
-                0,
-                .45,
-            ),
-        )
-
-        modal.add_widget(
-            card
-        )
-
-        cancel_btn.bind(
-            on_release=lambda *_:
-            modal.dismiss()
-        )
-
-        create_btn.bind(
-            on_release=lambda *_:
-            self.create_study_session(
-                modal,
-                subject.text,
-                goal.text,
-                int(duration.text),
-                start_now.active,
-            )
-        )
-
-        modal.open()
-
-    # ========================================================
-    # CREATE STUDY SESSION
-    # ========================================================
-
-    def create_study_session(
-        self,
-        modal,
-        subject,
-        goal,
-        duration,
-        start_now,
-    ):
-
-        modal.dismiss()
-
-        app = MDApp.get_running_app()
-
-        user_id = getattr(
-            app,
-            "user_id",
-            1
-        )
-
-        subject = (
-            subject.strip()
-            if subject
-            else "Study Session"
-        )
-
-        goal = (
-            goal.strip()
-            if goal
-            else "Focus Session"
-        )
-
-        title = (
-            f"{subject} - {goal}"
-        )
-
-        task_id = create_study_task(
-            user_id=user_id,
-            title=title,
-            duration=duration,
-        )
-
-        if start_now:
-
-            timer = self.manager.get_screen(
-                "timer"
-            )
-
-            timer.current_task_id = (
-                task_id
-            )
-
-            self.manager.current = (
-                "timer"
-            )
-
-        else:
-
-            # Refresh only the Home sections that still exist.
-            self.refresh_stats()
-            self.build_today_plan()
-
-    # ========================================================
-    # RESUME STUDYING
-    # ========================================================
-
-    def resume_studying(self):
-
-        if self._continue_studying_task_id is None:
-            return
-
-        timer = self.manager.get_screen(
-            "timer"
-        )
-
-        timer.current_task_id = (
-            self._continue_studying_task_id
-        )
-
-        self.manager.current = (
-            "timer"
-        )
-
-    # ========================================================
     # GENERIC NAVIGATION
     # ========================================================
 
@@ -1491,19 +1180,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             self.route_quick_add(
                 kind
             )
-
-        # ----------------------------------------------------
-        # STUDY
-        # ----------------------------------------------------
-
-        card.add_widget(
-            QuickAddOption(
-                "timer-outline",
-                "Study Session",
-                "Plan your study with Pomodoro",
-                lambda: choose("study"),
-            )
-        )
 
         # ----------------------------------------------------
         # EVENT
@@ -1590,14 +1266,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
                 ),
                 0,
             )
-
-        # ----------------------------------------------------
-        # STUDY
-        # ----------------------------------------------------
-
-        elif kind == "study":
-
-            self.open_study_session_popup()
 
         # ----------------------------------------------------
         # NOTE

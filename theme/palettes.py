@@ -20,7 +20,6 @@ DEFAULT = {
     "button":          "#6B4A32",
     "text_primary":    "#3B2A1D",
     "button_text":     "#FBF3E4",
-    "tile_accent_pomodoro": "#4B7F52",   # green for pomodoro icon
     "tile_accent_tasks":    "#2C4A7C",   # navy for tasks icon
 }
 
@@ -42,7 +41,7 @@ DARK = {
     "button":          "#7B6CE0",  # saturated purple primary-action button
     "text_primary":    "#F0EDF7",  # near-white with a faint purple tint
     "button_text":     "#FFFFFF",
-    "tile_accent_pomodoro": "#3BA55C",   # clean green, readable on every dark surface
+
     "tile_accent_tasks":    "#7D9FD1",   # lighter navy, as requested
 }
 
@@ -58,7 +57,7 @@ FLORAL = {
     "button":          "#D6567A",
     "text_primary":    "#4A3B6B",
     "button_text":     "#FFF9FC",
-    "tile_accent_pomodoro": "#6B9A5C",
+
     "tile_accent_tasks":    "#5C7FB0",
 }
 
@@ -72,7 +71,7 @@ MONOCHROME = {
     "button":          "#E0E0E0",
     "text_primary":    "#FFFFFF",
     "button_text":     "#121212",
-    "tile_accent_pomodoro": "#B0B0B0",
+
     "tile_accent_tasks":    "#B0B0B0",
 }
 
@@ -86,7 +85,7 @@ MATCHA = {
     "button":          "#5C7A44",
     "text_primary":    "#3A4530",
     "button_text":     "#F5F1E6",
-    "tile_accent_pomodoro": "#8A5A3C",   # warm terracotta/brown
+
     "tile_accent_tasks":    "#3E5A73",   # a muted blue that sits comfortably next to matcha's greens
 }
 
@@ -104,5 +103,5 @@ BUTTON          = "button"
 BUTTON_TEXT     = "button_text"
 BORDER          = "border"
 ACCENT          = "accent"
-TILE_ACCENT_POMODORO = "tile_accent_pomodoro"
+
 TILE_ACCENT_TASKS    = "tile_accent_tasks"

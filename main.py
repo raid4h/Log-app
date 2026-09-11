@@ -13,7 +13,7 @@ from screens.home_screen import HomeScreen
 from screens.notes_screen import NotesScreen
 from screens.note_editor_screen import NoteEditorScreen
 from screens.settings_screen import SettingsScreen
-from screens.timer_screen import TimerScreen
+
 from screens.calendar_screen import CalendarScreen
 from database.db import create_tables
 from database.calendar_queries import create_calendar_events_table
@@ -116,12 +116,12 @@ class LogApp(MDApp):
         Builder.load_file("home_screen.kv")  # Tabshira: DashboardTile, SmallTile, HomeScreen
         Builder.load_file("notes.kv")  # Raidah: NoteCard, AttachmentThumbnail, NotesScreen, NoteEditorScreen, FormattingToolbar, RecentlyDeletedScreen
         Builder.load_file("settings_screen.kv")
-        Builder.load_file("timer_screen.kv")
+
         Builder.load_file("calendar_screen.kv")
         Builder.load_file("checklist_screen.kv")
         Builder.load_file("checklist_detail_screen.kv")
         Builder.load_file("privacy_settings_screen.kv")
-        Builder.load_file("terms_screen.kv")
+
         Builder.load_file("privacy_policy_screen.kv")
 
         self.sm = ScreenManager()
@@ -130,7 +130,7 @@ class LogApp(MDApp):
         self.sm.add_widget(NoteEditorScreen(name="note_editor"))
         self.sm.add_widget(RecentlyDeletedScreen(name="recently_deleted"))
         self.sm.add_widget(SettingsScreen(name="settings"))
-        self.sm.add_widget(TimerScreen(name="timer"))
+
         self.sm.add_widget(CalendarScreen(name="calendar"))
         self.sm.add_widget(ChecklistScreen(name="checklist"))
         self.sm.add_widget(ChecklistDetailScreen(name="checklist_detail"))
@@ -160,7 +160,7 @@ class LogApp(MDApp):
         # The bottom nav bar sits OUTSIDE the ScreenManager (it's a
         # sibling in RootLayout, always on screen regardless of which
         # screen is current) -- so without this, a user on "terms"
-        # could just tap Home/Calendar/Notes/Timer and bypass the
+        # could just tap Home/Calendar/Notes and bypass the
         # agreement gate entirely, never having agreed to anything.
         # Binding to sm.current keeps the nav bar's visibility in sync
         # with whatever screen is actually showing, closing that gap.
@@ -354,14 +354,6 @@ class LogApp(MDApp):
                 "notebook-outline",
                 "Notes",
                 "notes"
-            )
-        )
-
-        nav.add_widget(
-            make_nav_button(
-                "timer-sand",
-                "Timer",
-                "timer"
             )
         )
 

@@ -10,20 +10,21 @@
         # ==================================================================
         # HEADER
         # ==================================================================
-        # FIX: back_button/add_button were pos_hint top:1, anchoring them
-        # level with just the "Calendar" title line -- on a real Android
-        # screen this sat too close to the status bar / top edge. Top
-        # padding increased (dp(16) -> dp(28)) for breathing room, and
-        # both icon buttons switched to center_y:0.5 so they sit centered
-        # against the WHOLE title+subtitle block instead of just the top
-        # line -- visually lower, roughly level with the subtitle text.
+        # FIX: header structure now matches timer_screen.kv and
+        # checklist_screen.kv exactly -- back_button and the title
+        # column both use pos_hint top:1 with a dp(10) spacer above
+        # the title (instead of the earlier center_y approach), same
+        # font_style "Title"/role "medium" (not bold), same spacing.
+        # Top padding (dp(28)) unchanged -- already gives clearance
+        # from a phone's status bar/notch.
 
         MDBoxLayout:
+            id: top_bar
             size_hint_y: None
             height: self.minimum_height
             adaptive_height: True
 
-            spacing: dp(6)
+            spacing: dp(8)
 
 
             MDIconButton:
@@ -33,7 +34,7 @@
 
                 theme_icon_color: "Custom"
 
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
 
                 on_release:
                     root.go_back()
@@ -42,12 +43,16 @@
             MDBoxLayout:
                 orientation: "vertical"
 
-                spacing: dp(0)
-
+                size_hint_x: 1
                 size_hint_y: None
                 adaptive_height: True
 
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
+
+
+                Widget:
+                    size_hint_y: None
+                    height: dp(10)
 
 
                 MDLabel:
@@ -59,8 +64,6 @@
 
                     font_style: "Title"
                     role: "medium"
-
-                    valign: "middle"
 
                     size_hint_y: None
                     adaptive_height: True
@@ -76,8 +79,6 @@
 
                     font_style: "Body"
                     role: "small"
-
-                    valign: "middle"
 
                     size_hint_y: None
                     adaptive_height: True
@@ -95,7 +96,7 @@
 
                 theme_icon_color: "Custom"
 
-                pos_hint: {"center_y": 0.5}
+                pos_hint: {"top": 1}
 
                 on_release:
                     root.open_add_popup()

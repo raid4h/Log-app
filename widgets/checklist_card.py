@@ -8,11 +8,10 @@ checklist's items on screens/checklist_detail_screen.py. A small
 delete button sits in the corner rather than requiring a separate
 screen/popup just to remove a checklist.
 
-UI-only pass, round 5: delete icon changed from "trash-can-outline" to
-"delete", matching the exact icon used by the Notes editor's own
-delete button (note_editor_screen.kv), for visual consistency across
-the app's delete actions. Everything else (padding, alignment, chip
-centering) unchanged from round 4.
+UI-only pass, round 6: top padding nudged again (22 -> 26dp) so the
+title/trash row sits a touch lower within the card, per your latest
+note. Alignment mechanism (AnchorLayout for both title and delete
+button) is unchanged -- spacing only.
 """
 
 from kivy.metrics import dp, sp
@@ -91,7 +90,7 @@ class ChecklistCard(ButtonBehavior, BoxLayout):
         kwargs.setdefault("size_hint_y", None)
         kwargs.setdefault("height", dp(108))
         kwargs.setdefault("spacing", dp(10))
-        kwargs.setdefault("padding", [dp(16), dp(22), dp(12), dp(12)])
+        kwargs.setdefault("padding", [dp(16), dp(26), dp(12), dp(12)])
         super().__init__(**kwargs)
 
         with self.canvas.before:

@@ -26,6 +26,11 @@
 # padding also increased (dp(20) -> dp(16),dp(28),dp(16),dp(16)) so
 # the header sits lower and doesn't crowd a phone's status bar/notch,
 # matching the same fix already applied to calendar_screen.kv.
+#
+# FIX 3: added a small spacer between top_bar and the scrollable card
+# list -- cards were sitting too close to the header/back-button row.
+# top_bar itself (back button + title/subtitle alignment) is
+# untouched.
 
 <ChecklistScreen>:
 
@@ -35,7 +40,7 @@
         spacing: dp(20)
 
         # top bar: back + title/subtitle -- structure matches
-        # timer_screen.kv's top_bar exactly.
+        # timer_screen.kv's top_bar exactly. UNCHANGED.
         MDBoxLayout:
             id: top_bar
             size_hint_y: None
@@ -80,6 +85,12 @@
                     size_hint_y: None
                     adaptive_height: True
                     text_size: self.width, None
+
+        # small breathing-room spacer -- pushes the card list down a
+        # bit from the header without touching top_bar itself.
+        Widget:
+            size_hint_y: None
+            height: dp(8)
 
         # scrollable list of checklist cards -- filled by
         # ChecklistScreen.load_checklists() in checklist_screen.py
