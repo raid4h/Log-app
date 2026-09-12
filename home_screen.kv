@@ -207,7 +207,7 @@
                                 shorten: True
                                 shorten_from: "right"
 
-                    # -- Notes --
+                                        # -- Notes --
                     MDCard:
                         theme_bg_color: "Custom"
                         md_bg_color: root.quick_note_bg
@@ -218,12 +218,13 @@
                         ripple_behavior: True
                         size_hint_x: 1
                         padding: dp(14)
-                        on_release: app.root.get_screen("home").open_notes()
+                        on_release: app.root.get_screen("home").open_notes_list()
 
                         QuickAction:
                             orientation: "vertical"
                             spacing: dp(6)
-                            on_release: app.root.get_screen("home").open_notes()
+                            on_release: app.root.get_screen("home").open_notes_list()
+
 
                             MDIcon:
                                 icon: "note-text-outline"

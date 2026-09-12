@@ -141,10 +141,11 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
     """
     Small top-of-home action.
 
-    The KV file uses root.open_notes(), root.open_checklist(),
-    root.open_calendar(), root.route_quick_add(), etc. Because
-    `root` inside a QuickAction block refers to QuickAction itself,
-    these proxy methods forward the request to HomeScreen.
+    The KV file uses root.open_notes(), root.open_notes_list(),
+    root.open_checklist(), root.open_calendar(),
+    root.route_quick_add(), etc. Because `root` inside a QuickAction
+    block refers to QuickAction itself, these proxy methods forward
+    the request to HomeScreen.
     """
 
     def _get_home(self):
@@ -163,6 +164,12 @@ class QuickAction(ButtonBehavior, MDBoxLayout):
 
         if home:
             home.open_notes()
+
+    def open_notes_list(self):
+        home = self._get_home()
+
+        if home:
+            home.open_notes_list()
 
     def open_checklist(self):
         home = self._get_home()
@@ -1078,6 +1085,20 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
 
         self.manager.current = (
             "note_editor"
+        )
+
+    def open_notes_list(self):
+        """
+        Routes the Home screen's Notes feature card to the Notes LIST
+        screen (browse/search all notes), as opposed to open_notes()
+        above, which is pre-existing logic (used by the Quick Add
+        sheet's "Start Noting" option) that jumps straight into a
+        blank note in the editor. Kept as a separate method so
+        open_notes() and its existing callers are untouched.
+        """
+
+        self.manager.current = (
+            "notes"
         )
 
     def open_checklist(self):
