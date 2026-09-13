@@ -687,35 +687,6 @@ class HomeScreen(ThemedScreenMixin, MDScreen):
             )
 
             # ------------------------------------------------
-            # CHEVRON
-            # ------------------------------------------------
-
-            arrow_box = MDAnchorLayout(
-                size_hint=(None, 1),
-                width=dp(24),
-                anchor_x="center",
-                anchor_y="center",
-            )
-
-            arrow_box.add_widget(
-                MDIcon(
-                    icon="chevron-right",
-                    theme_text_color="Custom",
-                    text_color=subtext_color,
-                    size_hint=(None, None),
-                    size=(dp(22), dp(22)),
-                )
-            )
-
-            row.add_widget(
-                arrow_box
-            )
-
-            self.ids.today_plan_list.add_widget(
-                row
-            )
-
-            # ------------------------------------------------
             # DIVIDER
             # ------------------------------------------------
 

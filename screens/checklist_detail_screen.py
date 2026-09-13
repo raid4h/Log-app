@@ -7,12 +7,31 @@
 # tucked away until the user taps to expand them. Also lets the user
 # edit the checklist's own title/priority via the pencil icon.
 #
+# v2: three new OPT-IN toggles/actions added to the edit popup, all
+# per-checklist and OFF by default (see services/checklist_store.py's
+# module docstring for the full storage-level rules):
+#   - "Calculate Prices" switch -- the running-total calculator
+#     (screens/editor/calculator.py) now only runs when this is on.
+#     Previously it always ran automatically.
+#   - "Add to Calendar" button -- opens a small date/time picker and
+#     creates ONE calendar event titled after the checklist, linking
+#     it via checklist_store.set_checklist_calendar_event(). Tapping
+#     it again while already linked lets the user change or remove
+#     the link.
+#   - "Show in Today's Log" switch -- toggles
+#     checklist_store.set_add_to_logs(). Whether items then show every
+#     day or only on the linked calendar date is decided by
+#     database/planner_queries.py, not this screen -- this screen only
+#     sets the flag.
+#
 # Also runs the same calculator pass the note editor uses on note
 # text (screens/editor/calculator.py) across every item's text, so a
 # checklist doubling as a shopping list ("Milk 4.99", "Eggs 3.50")
 # gets a running total for free -- a plain to-do checklist with no
 # numbers in it just shows nothing, same "only appears if there's
 # something to show" rule the note editor's grand total already uses.
+# NOW GATED behind the checklist's own calculate_prices flag (see v2
+# note above) rather than always running.
 #
 # No category anywhere in this feature -- the checklist's title is
 # already the categorization, per your last change.
@@ -34,11 +53,36 @@
 # matching the same icon already used correctly for sub-item
 # expansion in widgets/checklist_item.py, for both a working icon and
 # a consistent expand/collapse visual language across the screen.
+#
+# FIX (crash): MDSwitch(active=initial_active, ...) crashed on
+# construction -- passing active as a constructor kwarg fires
+# on_active immediately, before the switch's own .kv-defined ids
+# (ids.thumb) exist yet, since on_active tries to animate that thumb
+# widget. Constructing with no active kwarg, then setting .active as
+# a separate line afterward, avoids firing the callback before the
+# widget is fully built.
+#
+# FIX (alignment): the priority button and the "Add to Calendar"
+# button's text were rendering left-biased instead of centered,
+# despite halign="center"/valign="middle" being set -- Kivy's
+# halign/valign only take effect once text_size gives the label a
+# fixed box to align WITHIN. text_size is now bound to each
+# button-text widget's own size, so centering actually works.
+#
+# UI pass: edit popup restyled to match the confirmed reference --
+# fully pill-shaped buttons/priority badge (radius = height/2 instead
+# of a flat corner radius), a larger panel corner radius, and more
+# vertical breathing room between each row/section. Purely spacing
+# and radius values -- no layout structure, logic, or button behavior
+# changed.
+
+from datetime import datetime
 
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
 from kivymd.uix.card import MDCard
 from kivymd.uix.button import MDButton, MDButtonText, MDIconButton
+from kivymd.uix.selectioncontrol import MDSwitch
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.anchorlayout import AnchorLayout
@@ -64,9 +108,22 @@ from services.checklist_store import (
     set_checked,
     update_checklist,
     delete_checklist_item,
+    set_calculate_prices,
+    set_add_to_logs,
+    set_checklist_calendar_event,
 )
 
+from database.calendar_queries import create_event, delete_event
+
 from screens.editor.calculator import process_calculator_lines, format_calculated_number
+
+
+# Standard height for every pill-shaped control in this screen's edit
+# popup (priority badge, Add to Calendar, Cancel/Save) -- keeping one
+# constant means every pill's radius (height/2, computed per-button
+# below) stays visually consistent instead of drifting if one row's
+# height is tweaked independently later.
+_PILL_HEIGHT = dp(52)
 
 
 def theme_rgba(token):
@@ -85,17 +142,32 @@ def _build_themed_button(text, style, bg_token, text_token):
     responsible for scheduling a delayed re-apply (see
     _apply_popup_button_colors below) as a safety net, same pattern
     used there.
+
+    FIX: text_size is now bound to the button text's own size, so
+    halign="center"/valign="middle" (set below) actually take effect
+    -- see the module docstring's FIX (alignment) note.
+
+    UI: radius is now [_PILL_HEIGHT / 2] -- a true pill shape, height/
+    2 rounding on a height=_PILL_HEIGHT button, matching the reference
+    design. Callers that need a different height should override
+    radius accordingly after construction.
     """
     button_text = MDButtonText(
         text=text,
         theme_text_color="Custom",
         text_color=theme_manager.get_color(text_token),
+        halign="center",
+        valign="middle",
     )
+    button_text.bind(size=lambda inst, val: setattr(inst, "text_size", val))
     button = MDButton(
         button_text,
         style=style,
         theme_bg_color="Custom",
         md_bg_color=theme_manager.get_color(bg_token),
+        size_hint_y=None,
+        height=_PILL_HEIGHT,
+        radius=[_PILL_HEIGHT / 2],
     )
     button._theme_bg_token = bg_token
     button._theme_text_token = text_token
@@ -117,6 +189,43 @@ def _apply_popup_button_colors(*buttons):
         button.theme_bg_color = "Custom"
         button._theme_text_widget.text_color = theme_manager.get_color(button._theme_text_token)
         button._theme_text_widget.theme_text_color = "Custom"
+
+
+def _build_toggle_row(label_text, initial_active, on_change):
+    """
+    One switch row matching calendar_screen.py's "Repeat daily until
+    marked done" style -- a label on the left, an MDSwitch on the
+    right. Used for both new switches in this screen's edit popup
+    ("Calculate Prices", "Show in Today's Log").
+
+    FIX: MDSwitch(active=initial_active, ...) crashed on construction
+    -- passing active as a constructor kwarg fires on_active
+    immediately, before the switch's own .kv-defined ids (ids.thumb)
+    exist yet, since on_active tries to animate that thumb widget.
+    Constructing with no active kwarg, then setting .active as a
+    separate line afterward, avoids firing the callback before the
+    widget is fully built.
+    """
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(8))
+
+    label = Label(
+        text=label_text,
+        font_size=sp(14.5),
+        bold=True,
+        color=theme_rgba(TEXT_SECONDARY),
+        halign="left",
+        valign="middle",
+        size_hint_x=1,
+    )
+    label.bind(size=label.setter("text_size"))
+    row.add_widget(label)
+
+    switch = MDSwitch(pos_hint={"center_y": 0.5})
+    switch.active = initial_active
+    switch.bind(active=lambda _inst, value: on_change(value))
+    row.add_widget(switch)
+
+    return row, label
 
 
 PRIORITY_OPTIONS = ("Low", "Medium", "High")
@@ -204,10 +313,22 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
                 for item in checked_items:
                     checked_section.add_widget(self._build_item_row(item))
 
-        # -- running total (see module docstring) --
-        self._update_total(active_items)
+        # -- running total (see module docstring) -- only when the
+        # checklist has calculate_prices turned on.
+        checklist = get_checklist_by_id(self.checklist_id)
+        if checklist and checklist.get("calculate_prices"):
+            self._update_total(active_items)
+        else:
+            total_label = self.ids.total_label
+            total_label.text = ""
+            total_label.height = 0
 
     def _update_total(self, items):
+        # get_items_by_checklist only returns top-level items -- that's
+        # deliberate here too, same as get_checklist_item_counts on the
+        # list screen: sub-item text (e.g. "2%" under "Milk") isn't
+        # priced separately in this feature, so only top-level rows
+        # feed the calculator.
         combined_text = "\n".join(item["text"] for item in items)
         _display_text, grand_total, uses_currency = process_calculator_lines(combined_text)
 
@@ -250,9 +371,19 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         )
         item_widget.on_toggle_complete = lambda checked, iid=item["id"]: self._toggle_item(iid, checked)
 
+        # Extra breathing room between the item card and its delete
+        # button, and a little right-side padding so the ✕ doesn't
+        # crowd the screen edge -- purely spacing, same widgets/logic.
         row = BoxLayout(orientation="horizontal", size_hint_y=None, spacing=dp(6), padding=[0, 0, dp(4), 0])
         row.add_widget(item_widget)
 
+        # AnchorLayout keeps the delete button pinned to the TOP of the
+        # row regardless of how tall item_widget grows when its
+        # sub-items are expanded -- a plain pos_hint on the button
+        # alone would center it against the whole row's height instead.
+        # A small top padding nudges the ✕ down so its visual center
+        # lines up with the checkbox/title line instead of the card's
+        # bare top edge.
         delete_anchor = AnchorLayout(
             size_hint=(None, 1), width=dp(36), anchor_x="center", anchor_y="top",
             padding=(0, dp(10), 0, 0),
@@ -275,6 +406,9 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
 
     def _toggle_item(self, item_id, checked):
         set_checked(item_id, checked)
+        # An item moves between the active list and the checked
+        # section the moment it's toggled, so the whole screen
+        # rebuilds rather than just flipping a strikethrough in place.
         self.load_items()
 
     def _delete_item(self, item_id):
@@ -406,7 +540,7 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         self._checked_expanded = not self._checked_expanded
         self.load_items()
 
-    # ── editing the checklist's own title/priority ──
+    # ── editing the checklist's own title/priority + v2 toggles ──
 
     def open_edit_checklist_popup(self):
         checklist = get_checklist_by_id(self.checklist_id)
@@ -415,20 +549,20 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
 
         panel = MDCard(
             orientation="vertical",
-            padding=dp(18),
-            spacing=dp(10),
+            padding=dp(22),
+            spacing=dp(20),
             theme_bg_color="Custom",
             md_bg_color=theme_manager.get_color(CARD_PRIMARY),
-            radius=[18],
+            radius=[28],
         )
 
         heading = Label(
             text="Edit Checklist",
-            font_size=sp(17),
+            font_size=sp(22),
             bold=True,
             color=theme_rgba(TEXT_PRIMARY),
             size_hint_y=None,
-            height=dp(30),
+            height=dp(34),
             halign="left",
             valign="middle",
         )
@@ -439,10 +573,12 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             text=checklist["title"],
             multiline=False,
             size_hint_y=None,
-            height=dp(46),
+            height=_PILL_HEIGHT,
             background_color=theme_rgba(BACKGROUND),
             foreground_color=theme_rgba(TEXT_PRIMARY),
             cursor_color=theme_rgba(ACCENT),
+            font_size=sp(15),
+            padding=[dp(14), dp(14), dp(14), dp(14)],
         )
         panel.add_widget(title_input)
 
@@ -453,17 +589,64 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
             bg_token=BORDER,
             text_token=TEXT_PRIMARY,
         )
-        priority_btn.size_hint_y = None
-        priority_btn.height = dp(44)
         panel.add_widget(priority_btn)
 
-        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(8))
+        # -- v2: Calculate Prices switch --
+        calc_row, calc_label = _build_toggle_row(
+            "Calculate Prices",
+            checklist.get("calculate_prices", False),
+            lambda value: set_calculate_prices(self.checklist_id, value),
+        )
+        panel.add_widget(calc_row)
+
+        # -- v2: Add to Calendar button --
+        calendar_button_state = {"linked": checklist.get("calendar_event_id") is not None}
+        calendar_btn = _build_themed_button(
+            "Remove from Calendar" if calendar_button_state["linked"] else "Add to Calendar",
+            style="tonal",
+            bg_token=BORDER,
+            text_token=TEXT_PRIMARY,
+        )
+
+        def _refresh_calendar_button_label():
+            new_text = MDButtonText(
+                text="Remove from Calendar" if calendar_button_state["linked"] else "Add to Calendar",
+                theme_text_color="Custom",
+                text_color=theme_manager.get_color(TEXT_PRIMARY),
+                halign="center",
+                valign="middle",
+            )
+            new_text.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+            calendar_btn.clear_widgets()
+            calendar_btn.add_widget(new_text)
+            calendar_btn._theme_text_widget = new_text
+
+        def _on_calendar_button(*_a):
+            if calendar_button_state["linked"]:
+                self._remove_checklist_from_calendar(checklist)
+                calendar_button_state["linked"] = False
+                _refresh_calendar_button_label()
+            else:
+                self._open_add_to_calendar_popup(checklist, calendar_button_state, _refresh_calendar_button_label)
+
+        calendar_btn.bind(on_release=_on_calendar_button)
+        panel.add_widget(calendar_btn)
+
+        # -- v2: Show in Today's Log switch --
+        logs_row, logs_label = _build_toggle_row(
+            "Show in Today's Log",
+            checklist.get("add_to_logs", False),
+            lambda value: set_add_to_logs(self.checklist_id, value),
+        )
+        panel.add_widget(logs_row)
+
+        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=_PILL_HEIGHT, spacing=dp(12))
 
         popup = Popup(
             title="",
             content=panel,
-            size_hint=(0.85, None),
-            height=dp(280),
+            size_hint=(0.88, None),
+            height=dp(560),
             auto_dismiss=False,
             separator_height=0,
             background="",
@@ -471,11 +654,20 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         )
 
         def set_priority_label():
+            # Rebuilds the button's text widget (same approach the
+            # original code used) -- has to re-register it as
+            # priority_btn._theme_text_widget too, or a later
+            # _apply_popup_button_colors() call would still be
+            # pointing at the OLD (now-discarded) text widget instead
+            # of this new one.
             new_text = MDButtonText(
                 text=priority_state["value"] or "+ Priority (optional)",
                 theme_text_color="Custom",
                 text_color=theme_manager.get_color(TEXT_PRIMARY),
+                halign="center",
+                valign="middle",
             )
+            new_text.bind(size=lambda inst, val: setattr(inst, "text_size", val))
             priority_btn.clear_widgets()
             priority_btn.add_widget(new_text)
             priority_btn._theme_text_widget = new_text
@@ -487,13 +679,14 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         cancel_btn = _build_themed_button(
             "Cancel", style="tonal", bg_token=BORDER, text_token=TEXT_PRIMARY
         )
-        cancel_btn.bind(on_release=lambda *_a: popup.dismiss())
         actions.add_widget(cancel_btn)
 
         save_btn = _build_themed_button(
             "Save", style="filled", bg_token=BUTTON, text_token=BUTTON_TEXT
         )
         actions.add_widget(save_btn)
+
+        cancel_btn.bind(on_release=lambda *_a: popup.dismiss())
 
         def do_save(*_args):
             title = title_input.text.strip() or checklist["title"]
@@ -509,25 +702,30 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         panel.add_widget(actions)
         popup.open()
 
+        # Safety-net re-apply -- see _apply_popup_button_colors
+        # docstring. priority_btn/calendar_btn aren't included here
+        # since their text widgets can get swapped out by
+        # set_priority_label()/_refresh_calendar_button_label(), and
+        # this runs before the user could have triggered either.
         _apply_popup_button_colors(cancel_btn, save_btn)
         Clock.schedule_once(
-            lambda dt: _apply_popup_button_colors(cancel_btn, save_btn, priority_btn), 0.3
+            lambda dt: _apply_popup_button_colors(cancel_btn, save_btn, priority_btn, calendar_btn), 0.3
         )
 
     def _open_inline_priority_picker(self, priority_state, on_chosen):
         panel = MDCard(
-            orientation="vertical", padding=dp(16), spacing=dp(8),
-            theme_bg_color="Custom", md_bg_color=theme_manager.get_color(CARD_PRIMARY), radius=[18],
+            orientation="vertical", padding=dp(18), spacing=dp(12),
+            theme_bg_color="Custom", md_bg_color=theme_manager.get_color(CARD_PRIMARY), radius=[28],
         )
         title = Label(
-            text="Choose Priority", font_size=sp(15), bold=True, color=theme_rgba(TEXT_PRIMARY),
-            size_hint_y=None, height=dp(28), halign="left", valign="middle",
+            text="Choose Priority", font_size=sp(17), bold=True, color=theme_rgba(TEXT_PRIMARY),
+            size_hint_y=None, height=dp(30), halign="left", valign="middle",
         )
         title.bind(size=title.setter("text_size"))
         panel.add_widget(title)
 
         inner_popup = Popup(
-            title="", content=panel, size_hint=(0.7, None), height=dp(260),
+            title="", content=panel, size_hint=(0.75, None), height=dp(330),
             auto_dismiss=True, separator_height=0, background="", background_color=(0, 0, 0, 0),
         )
 
@@ -552,3 +750,133 @@ class ChecklistDetailScreen(ThemedScreenMixin, MDScreen):
         inner_popup.open()
         _apply_popup_button_colors(*picker_buttons)
         Clock.schedule_once(lambda dt: _apply_popup_button_colors(*picker_buttons), 0.3)
+
+    # ── v2: Add to Calendar ──
+
+    def _open_add_to_calendar_popup(self, checklist, calendar_button_state, on_linked):
+        """
+        Small date/time picker for linking this checklist to ONE
+        calendar event (per your confirmed option (a) -- one event
+        for the whole checklist, not one per item). The time field is
+        optional ("putting a time limit on it if user wants to") --
+        leaving it blank creates an all-day-style event with no
+        event_time, same as calendar_screen.py already supports for a
+        plain reminder with no time set.
+        """
+        panel = MDCard(
+            orientation="vertical", padding=dp(20), spacing=dp(16),
+            theme_bg_color="Custom", md_bg_color=theme_manager.get_color(CARD_PRIMARY), radius=[28],
+        )
+
+        title = Label(
+            text="Add to Calendar", font_size=sp(19), bold=True, color=theme_rgba(TEXT_PRIMARY),
+            size_hint_y=None, height=dp(30), halign="left", valign="middle",
+        )
+        title.bind(size=title.setter("text_size"))
+        panel.add_widget(title)
+
+        date_input = TextInput(
+            hint_text="Date (YYYY-MM-DD)",
+            text=datetime.now().strftime("%Y-%m-%d"),
+            multiline=False,
+            size_hint_y=None,
+            height=_PILL_HEIGHT,
+            background_color=theme_rgba(BACKGROUND),
+            foreground_color=theme_rgba(TEXT_PRIMARY),
+            cursor_color=theme_rgba(ACCENT),
+            font_size=sp(15),
+            padding=[dp(14), dp(14), dp(14), dp(14)],
+        )
+        panel.add_widget(date_input)
+
+        time_input = TextInput(
+            hint_text="Time limit (HH:MM, optional)",
+            multiline=False,
+            size_hint_y=None,
+            height=_PILL_HEIGHT,
+            background_color=theme_rgba(BACKGROUND),
+            foreground_color=theme_rgba(TEXT_PRIMARY),
+            cursor_color=theme_rgba(ACCENT),
+            font_size=sp(15),
+            padding=[dp(14), dp(14), dp(14), dp(14)],
+        )
+        panel.add_widget(time_input)
+
+        error_label = Label(
+            text="", font_size=sp(11.5), color=theme_rgba(TEXT_SECONDARY),
+            size_hint_y=None, height=dp(18), halign="left", valign="middle",
+        )
+        error_label.bind(size=error_label.setter("text_size"))
+        panel.add_widget(error_label)
+
+        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=_PILL_HEIGHT, spacing=dp(12))
+
+        inner_popup = Popup(
+            title="", content=panel, size_hint=(0.88, None), height=dp(400),
+            auto_dismiss=False, separator_height=0, background="", background_color=(0, 0, 0, 0),
+        )
+
+        cancel_btn = _build_themed_button("Cancel", style="tonal", bg_token=BORDER, text_token=TEXT_PRIMARY)
+        cancel_btn.bind(on_release=lambda *_a: inner_popup.dismiss())
+        actions.add_widget(cancel_btn)
+
+        save_btn = _build_themed_button("Save", style="filled", bg_token=BUTTON, text_token=BUTTON_TEXT)
+
+        def do_save(*_a):
+            date_text = date_input.text.strip()
+            time_text = time_input.text.strip() or None
+
+            try:
+                datetime.strptime(date_text, "%Y-%m-%d")
+            except ValueError:
+                error_label.text = "Enter a valid date (YYYY-MM-DD)."
+                return
+
+            if time_text:
+                try:
+                    datetime.strptime(time_text, "%H:%M")
+                except ValueError:
+                    error_label.text = "Enter a valid time (HH:MM) or leave it blank."
+                    return
+
+            new_event_id = create_event(
+                user_id=self._user_id(),
+                title=checklist["title"],
+                event_date=date_text,
+                event_time=time_text,
+                event_link=None,
+                is_recurring=False,
+            )
+            set_checklist_calendar_event(self.checklist_id, new_event_id)
+
+            inner_popup.dismiss()
+            calendar_button_state["linked"] = True
+            on_linked()
+
+        save_btn.bind(on_release=do_save)
+        actions.add_widget(save_btn)
+        panel.add_widget(actions)
+
+        inner_popup.open()
+        _apply_popup_button_colors(cancel_btn, save_btn)
+        Clock.schedule_once(lambda dt: _apply_popup_button_colors(cancel_btn, save_btn), 0.3)
+
+    def _remove_checklist_from_calendar(self, checklist):
+        """
+        Unlinks this checklist from its calendar event and deletes
+        that event -- since the event only ever existed because of
+        this checklist link (created exclusively via
+        _open_add_to_calendar_popup above), there's no other owner of
+        it to preserve.
+        """
+        existing_event_id = checklist.get("calendar_event_id")
+        if existing_event_id is not None:
+            try:
+                delete_event(existing_event_id)
+            except Exception:
+                # If the event was already removed some other way
+                # (e.g. deleted directly from the Calendar screen),
+                # this shouldn't block unlinking it from the
+                # checklist below.
+                pass
+        set_checklist_calendar_event(self.checklist_id, None)

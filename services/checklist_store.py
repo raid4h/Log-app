@@ -22,6 +22,28 @@
 # already ran the app with the old schema keeps those columns sitting
 # around unused -- harmless, just dead weight on existing installs;
 # every fresh install/database going forward won't have them at all.
+#
+# v2 additions (per-checklist optional feature toggles, all default
+# OFF so every existing checklist keeps behaving exactly as before):
+#   calculate_prices  -- when on, checklist_detail_screen.py runs its
+#                         shopping-list price calculator over the
+#                         checklist's items. When off, no total is
+#                         computed or shown at all.
+#   add_to_logs       -- when on, this checklist's items are eligible
+#                         to appear in Home's Today's Log. Whether
+#                         they show EVERY day or only on ONE specific
+#                         day depends on calendar_event_id (see
+#                         below) -- database/planner_queries.py is
+#                         what actually applies that rule when
+#                         building Today's Log; this flag only says
+#                         "this checklist opted in at all".
+#   calendar_event_id -- set when the checklist has been linked to a
+#                         calendar event via "Add to Calendar" (NULL
+#                         otherwise). When add_to_logs is on AND this
+#                         is set, Today's Log only shows the items on
+#                         that event's date. When add_to_logs is on
+#                         and this is NULL, Today's Log shows the
+#                         items every day, with no date restriction.
 
 from database.db import get_connection
 
@@ -62,10 +84,30 @@ def _ensure_tables():
     # from before this rework -- CREATE TABLE IF NOT EXISTS alone
     # won't add a column to a table that's already there.
     cursor.execute("PRAGMA table_info(checklist_items)")
-    existing_columns = {row[1] for row in cursor.fetchall()}
-    if "checklist_id" not in existing_columns:
+    existing_item_columns = {row[1] for row in cursor.fetchall()}
+    if "checklist_id" not in existing_item_columns:
         cursor.execute(
             "ALTER TABLE checklist_items ADD COLUMN checklist_id INTEGER REFERENCES checklists(id)"
+        )
+
+    # v2: migrate the three new per-checklist toggles into an existing
+    # checklists table -- same reasoning/pattern as checklist_id above.
+    # All default to 0/NULL so every checklist that existed before
+    # this change keeps behaving exactly as it did (calculator always
+    # ran, items never appeared in Today's Log).
+    cursor.execute("PRAGMA table_info(checklists)")
+    existing_checklist_columns = {row[1] for row in cursor.fetchall()}
+    if "calculate_prices" not in existing_checklist_columns:
+        cursor.execute(
+            "ALTER TABLE checklists ADD COLUMN calculate_prices INTEGER DEFAULT 0"
+        )
+    if "add_to_logs" not in existing_checklist_columns:
+        cursor.execute(
+            "ALTER TABLE checklists ADD COLUMN add_to_logs INTEGER DEFAULT 0"
+        )
+    if "calendar_event_id" not in existing_checklist_columns:
+        cursor.execute(
+            "ALTER TABLE checklists ADD COLUMN calendar_event_id INTEGER REFERENCES calendar_events(id)"
         )
 
     conn.commit()
@@ -137,7 +179,8 @@ def get_all_checklists(user_id=1):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, user_id, title, priority, created_at
+        SELECT id, user_id, title, priority, created_at,
+               calculate_prices, add_to_logs, calendar_event_id
         FROM checklists
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -155,7 +198,8 @@ def get_checklist_by_id(checklist_id):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, user_id, title, priority, created_at
+        SELECT id, user_id, title, priority, created_at,
+               calculate_prices, add_to_logs, calendar_event_id
         FROM checklists
         WHERE id = ?
     ''', (checklist_id,))
@@ -184,6 +228,57 @@ def update_checklist(checklist_id, title=None, priority=None):
         UPDATE checklists SET {", ".join(fields)}
         WHERE id = ?
     ''', values)
+    conn.commit()
+    conn.close()
+
+
+def set_calculate_prices(checklist_id, enabled):
+    """
+    Turns the per-checklist price-calculator toggle on/off. See the
+    module docstring's v2 notes for exactly what this controls.
+    """
+    _ensure_tables()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE checklists SET calculate_prices = ?
+        WHERE id = ?
+    ''', (1 if enabled else 0, checklist_id))
+    conn.commit()
+    conn.close()
+
+
+def set_add_to_logs(checklist_id, enabled):
+    """
+    Turns the per-checklist "show items in Today's Log" toggle on/off.
+    See the module docstring's v2 notes for exactly what this
+    controls, including how it interacts with calendar_event_id.
+    """
+    _ensure_tables()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE checklists SET add_to_logs = ?
+        WHERE id = ?
+    ''', (1 if enabled else 0, checklist_id))
+    conn.commit()
+    conn.close()
+
+
+def set_checklist_calendar_event(checklist_id, calendar_event_id):
+    """
+    Links (or unlinks, if calendar_event_id is None) this checklist to
+    a calendar_events row -- set when the user uses "Add to Calendar"
+    on this checklist. See the module docstring's v2 notes for how
+    this affects Today's Log when add_to_logs is also on.
+    """
+    _ensure_tables()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE checklists SET calendar_event_id = ?
+        WHERE id = ?
+    ''', (calendar_event_id, checklist_id))
     conn.commit()
     conn.close()
 
@@ -242,6 +337,9 @@ def _checklist_row_to_dict(row):
         "title": row[2],
         "priority": row[3] or "",
         "created_at": row[4],
+        "calculate_prices": bool(row[5]) if len(row) > 5 else False,
+        "add_to_logs": bool(row[6]) if len(row) > 6 else False,
+        "calendar_event_id": row[7] if len(row) > 7 else None,
     }
 
 

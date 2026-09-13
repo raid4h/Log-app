@@ -20,6 +20,17 @@
 # switched from a plain TextInput to an outlined MDTextField, same
 # component and visual style Calendar's own popup uses, for a
 # consistent look between the two features' "add" dialogs.
+#
+# FIX: the priority button's text ("No priority set" / a chosen
+# value) was rendering left-biased instead of centered, despite
+# halign="center"/valign="middle" being set -- Kivy's halign/valign
+# only take effect once text_size gives the label a fixed box to
+# align WITHIN; without it, the label's texture is only as wide as
+# its own text, so it ignores halign entirely. Same root cause as the
+# bug already fixed once in widgets/checklist_card.py's _Chip.
+# text_size is now bound to each button-text widget's own size, in
+# both _build_themed_button and set_priority_label's replacement
+# text, so centering actually works everywhere this pattern is used.
 
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
@@ -114,6 +125,15 @@ def _build_themed_button(text, style, bg_token, text_token, line_token=None):
     line_token, if given, sets a themed border color -- matches
     calendar_screen.py's tonal buttons, which draw a BORDER-colored
     outline.
+
+    FIX: halign="center"/valign="middle" on MDButtonText were never
+    actually taking effect -- Kivy's halign/valign only apply once
+    text_size gives the label a fixed box to align WITHIN; without it,
+    the label's texture is only as wide as its own text, so it
+    renders left-biased inside the button regardless of halign. This
+    is exactly the bug already fixed once in widgets/checklist_card.py's
+    _Chip -- same root cause, different widget. text_size is now bound
+    to the button's own size, so centering actually works.
     """
     button_text = MDButtonText(
         text=text,
@@ -122,6 +142,8 @@ def _build_themed_button(text, style, bg_token, text_token, line_token=None):
         halign="center",
         valign="middle",
     )
+    button_text.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+
     kwargs = dict(
         style=style,
         theme_bg_color="Custom",
@@ -351,6 +373,7 @@ class ChecklistScreen(ThemedScreenMixin, MDScreen):
                 halign="center",
                 valign="middle",
             )
+            new_text.bind(size=lambda inst, val: setattr(inst, "text_size", val))
             priority_btn.clear_widgets()
             priority_btn.add_widget(new_text)
             priority_btn._theme_text_widget = new_text
